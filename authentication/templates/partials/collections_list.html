@@ -1,0 +1,82 @@
+{% for col in collections %}
+<div class="space-y-0.5" x-data="{ open: true }">
+    <div class="px-2 py-1 flex items-center justify-between rounded-md hover:bg-black/5 group">
+        <span class="flex items-center space-x-1.5 flex-1 min-w-0 cursor-pointer text-xs font-semibold text-[#3a3a3c]" @click="open = !open">
+            <span x-text="open ? '▾' : '▸'"></span>
+            <span class="truncate">{{ col.name }}</span>
+        </span>
+        <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 shrink-0">
+            <a href="{% url 'export_collection_api' col.id %}" title="Export as JSON"
+               class="text-[#8e8e93] hover:text-[#007aff] text-[11px] px-1">⭳</a>
+            <button title="Delete collection" class="text-[#8e8e93] hover:text-rose-500 text-[11px] px-1"
+                    hx-post="{% url 'delete_collection_api' col.id %}"
+                    hx-target="#collections-list"
+                    hx-confirm="Delete '{{ col.name }}' and all its saved requests?">
+                ✕
+            </button>
+        </div>
+    </div>
+
+    {% if col.environments.all %}
+    <div class="pl-4 flex flex-wrap gap-1 pb-1">
+        {% for env in col.environments.all %}
+        <button @click="$dispatch('use-environment', { id: '{{ env.id }}' })"
+                title="Switch to this environment"
+                class="text-[9px] px-1.5 py-0.5 rounded-full bg-[#e8f0fe] text-[#007aff] font-medium hover:bg-[#d7e6fd] transition-colors">
+            {{ env.name }}
+        </button>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="pl-4 space-y-0.5" x-show="open">
+        {% for req in col.requests.all %}
+        <div class="rounded-md hover:bg-black/5 text-xs group" x-data="{ showTrend: false, trend: null }">
+            <div class="flex items-center justify-between px-2 py-1.5">
+                <button @click="loadSavedRequest({{ req.id }})" class="flex items-center space-x-2 flex-1 text-left min-w-0">
+                    <span class="font-mono text-[9px] font-bold px-1 py-0.2 rounded text-white shrink-0
+                        {% if req.method == 'GET' %}bg-emerald-500{% elif req.method == 'POST' %}bg-blue-500
+                        {% elif req.method == 'PUT' or req.method == 'PATCH' %}bg-amber-500{% else %}bg-rose-500{% endif %}">
+                        {{ req.method }}
+                    </span>
+                    <span class="truncate text-[#3a3a3c] font-medium">{{ req.name }}</span>
+                </button>
+                <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 shrink-0">
+                    <button title="Show response-time trend"
+                            @click="showTrend = !showTrend; if (showTrend && !trend) fetchTrend({{ req.id }}).then(d => trend = d)"
+                            class="text-[#8e8e93] hover:text-[#007aff] text-[10px] px-1">📈</button>
+                    <button title="Delete request" class="text-[#8e8e93] hover:text-rose-500 text-[10px] px-1"
+                            hx-post="{% url 'delete_request_api' req.id %}"
+                            hx-target="#collections-list"
+                            hx-confirm="Delete '{{ req.name }}'?">✕</button>
+                </div>
+            </div>
+            <div x-show="showTrend" x-cloak class="px-2 pb-2">
+                <template x-if="trend === null">
+                    <div class="text-[10px] text-[#8e8e93] italic px-1">Loading…</div>
+                </template>
+                <template x-if="trend && trend.runs && trend.runs.length">
+                    <div x-html="renderSparkline(trend.runs)"></div>
+                </template>
+                <template x-if="trend && (!trend.runs || !trend.runs.length)">
+                    <div class="text-[10px] text-[#8e8e93] italic px-1">No runs logged yet — send this request a few times to see a trend.</div>
+                </template>
+            </div>
+        </div>
+        {% empty %}
+        <div class="text-[11px] text-[#8e8e93] px-2 py-1 italic">No requests yet</div>
+        {% endfor %}
+    </div>
+</div>
+{% empty %}
+<div class="text-xs text-[#8e8e93] px-2 py-4 text-center">
+    No collections yet — save a request to create one.
+</div>
+{% endfor %}
+
+<div class="pt-2 mt-2 border-t border-[#e5e5ea] px-2">
+    <label class="inline-block text-[#007aff] hover:underline cursor-pointer text-[11px]">
+        + Import collection from JSON
+        <input type="file" accept=".json,application/json" class="hidden" @change="importCollectionFile($event)">
+    </label>
+</div>

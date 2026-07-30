@@ -1,0 +1,1487 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-[#f2f2f7]">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relay ⚡ Modern API Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+
+    <style>
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.12);
+            border-radius: 99px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 0, 0, 0.25);
+        }
+        [x-cloak] {
+            display: none !important;
+        }
+        .assertion-pass {
+            background: #d1fae5;
+            color: #065f46;
+            border-color: #a7f3d0;
+        }
+        .assertion-fail {
+            background: #fee2e2;
+            color: #991b1b;
+            border-color: #fca5a5;
+        }
+        .assertion-skip {
+            background: #f3f4f6;
+            color: #6b7280;
+            border-color: #e5e7eb;
+        }
+        .header-key {
+            color: #8e8e93 !important;
+        }
+        .header-value {
+            color: #1c1c1e !important;
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col font-[-apple-system,BlinkMacSystemFont,'SF_Pro_Text','Segoe_UI',Roboto,sans-serif] text-[#1c1c1e] antialiased select-none overflow-hidden"
+      x-data="relayApp()"
+      @use-environment.window="activeEnvId = String($event.detail.id); fetchActiveEnvVars(); showToastGlobal('Environment switched')"
+      @environment-updated.window="if (String($event.detail.id) === String(activeEnvId)) fetchActiveEnvVars()">
+
+<!-- Top Navigation Header -->
+<header class="h-11 bg-white/80 backdrop-blur-md border-b border-[#e5e5ea] flex items-center justify-between px-4 z-20 shrink-0">
+    <div class="flex items-center space-x-3">
+        <div class="flex items-center space-x-2">
+            <div class="w-7 h-7 bg-gradient-to-b from-[#007aff] to-[#0051a8] rounded-lg shadow-sm flex items-center justify-center p-1">
+                <svg class="w-full h-full text-white" viewBox="0 0 100 100" fill="none">
+                    <circle cx="25" cy="75" r="10" fill="currentColor"/>
+                    <circle cx="75" cy="25" r="10" fill="currentColor"/>
+                    <path d="M25 75 L50 50 L75 25" stroke="currentColor" stroke-width="9" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <span class="font-bold text-sm tracking-tight text-[#1c1c1e]">Relay</span>
+        </div>
+        <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#e5e5ea]/80 text-[#8e8e93] font-semibold tracking-wide uppercase">Workspace</span>
+    </div>
+
+    <div class="flex items-center space-x-3">
+        {{ environments_json|json_script:"environments-data" }}
+        {{ assertions|json_script:"assertions-data" }}
+
+        <select x-model="activeEnvId" @change="fetchActiveEnvVars()"
+                class="h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px] font-medium text-[#1c1c1e] focus:outline-none focus:ring-2 focus:ring-[#007aff]/40 cursor-pointer max-w-[160px]">
+            <option value="">No Environment</option>
+            <template x-for="env in environmentsList" :key="env.id">
+                <option :value="String(env.id)" x-text="env.name + (env.collection_id ? ' (scoped)' : '')"></option>
+            </template>
+        </select>
+
+        <button @click="showEnvDrawer = true; fetchActiveEnvVars()"
+                class="flex items-center space-x-1.5 bg-[#f2f2f7] hover:bg-[#e5e5ea] border border-[#e5e5ea] rounded-lg px-2.5 py-1 text-xs font-medium transition-all">
+            <span class="w-2 h-2 rounded-full" :class="activeEnvId ? 'bg-emerald-500' : 'bg-amber-500'"></span>
+            <span class="text-[#8e8e93] text-[11px]">Env:</span>
+            <span class="font-semibold text-[#1c1c1e] text-xs"
+                  x-text="activeEnvId ? (envVars.length + ' Variables') : 'None selected'"></span>
+        </button>
+
+        <button @click="showCurlModal = true"
+                class="text-xs bg-[#f2f2f7] hover:bg-[#e5e5ea] text-[#1c1c1e] font-medium px-3 py-1 rounded-lg border border-[#e5e5ea] transition-all flex items-center space-x-1">
+            <span>⬇ Import cURL</span>
+        </button>
+
+        <button @click="showAssertionsModal = true"
+                class="text-xs bg-[#f2f2f7] hover:bg-[#e5e5ea] text-[#1c1c1e] font-medium px-3 py-1 rounded-lg border border-[#e5e5ea] transition-all flex items-center space-x-1">
+            <span>✅ Assertions</span>
+            <span x-show="assertions.length > 0" class="w-2 h-2 rounded-full"
+                  :class="assertionResults.some(r => r && !r.pass && !r.skipped) ? 'bg-rose-500' : assertionResults.every(r => r && r.pass) ? 'bg-emerald-500' : 'bg-amber-500'"></span>
+        </button>
+    </div>
+</header>
+
+<div class="flex-1 flex overflow-hidden">
+
+    <aside class="w-60 bg-[#f9f9fb] border-r border-[#e5e5ea] flex flex-col shrink-0"
+           x-data="{ sidebarTab: 'collections' }">
+        <div class="p-2 border-b border-[#e5e5ea] flex space-x-1 bg-white/50">
+            <button @click="sidebarTab = 'collections'"
+                    :class="sidebarTab === 'collections' ? 'bg-white shadow-sm font-semibold text-[#1c1c1e]' : 'text-[#8e8e93] hover:text-[#1c1c1e]'"
+                    class="flex-1 py-1 text-xs rounded-md transition-all text-center">
+                Collections
+            </button>
+            <button @click="sidebarTab = 'history'"
+                    :class="sidebarTab === 'history' ? 'bg-white shadow-sm font-semibold text-[#1c1c1e]' : 'text-[#8e8e93] hover:text-[#1c1c1e]'"
+                    class="flex-1 py-1 text-xs rounded-md transition-all text-center">
+                History
+            </button>
+            <button @click="sidebarTab = 'flows'"
+                    :class="sidebarTab === 'flows' ? 'bg-white shadow-sm font-semibold text-[#1c1c1e]' : 'text-[#8e8e93] hover:text-[#1c1c1e]'"
+                    class="flex-1 py-1 text-xs rounded-md transition-all text-center">
+                Flows
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-2">
+            <div x-show="sidebarTab === 'collections'" class="space-y-3">
+                <div class="flex items-center justify-between px-2 text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider">
+                    <span>Collections</span>
+                    <button @click="showNewCollectionModal = true"
+                            class="text-[#007aff] hover:underline normal-case font-semibold">+ New
+                    </button>
+                </div>
+                <div id="collections-list">
+                    {% include "partials/collections_list.html" %}
+                </div>
+            </div>
+
+            <div x-show="sidebarTab === 'history'" class="space-y-1">
+                <div class="flex items-center justify-between px-2 text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider">
+                    <span>Recent Runs</span>
+                </div>
+                <div id="history-list">
+                    {% include "partials/history_list.html" %}
+                </div>
+            </div>
+
+            <div x-show="sidebarTab === 'flows'" class="space-y-1">
+                <div class="flex items-center justify-between px-2 text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider">
+                    <span>Flows</span>
+                    <button @click="openFlowBuilder()" class="text-[#007aff] hover:underline normal-case font-semibold">
+                        + New
+                    </button>
+                </div>
+                <div id="flows-list">
+                    {% include "partials/flows_list.html" %}
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col bg-white overflow-hidden min-h-0">
+        <form hx-post="{% url 'send_request_api' %}"
+              hx-target="#response-container"
+              hx-indicator="#loading-spinner"
+              hx-trigger="submit, keyboard-send from:body"
+              @htmx:before-request="prepareRequestData($event)"
+              @htmx:after-request="handleResponse($event)"
+              class="flex flex-col h-full min-h-0">
+            {% csrf_token %}
+
+            <input type="hidden" name="active_env_id" :value="activeEnvId">
+            <input type="hidden" name="saved_request_id" :value="currentSavedRequestId">
+
+            <div class="p-3 border-b border-[#e5e5ea] flex items-center space-x-2 bg-white/80 backdrop-blur-sm">
+                <select name="method" x-model="method"
+                        class="h-9 bg-[#f2f2f7] border border-[#e5e5ea] rounded-xl px-3 font-mono font-bold text-xs text-[#1c1c1e] focus:outline-none focus:ring-2 focus:ring-[#007aff]/40 cursor-pointer">
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                </select>
+
+                <div class="flex-1 relative">
+                    <input type="text"
+                           name="url"
+                           x-model="url"
+                           placeholder="https://api.example.com/v1/resource or {{baseUrl}}/posts/1"
+                           required
+                           class="w-full h-9 bg-[#f2f2f7] border border-[#e5e5ea] rounded-xl px-3.5 font-mono text-xs text-[#1c1c1e] placeholder-[#8e8e93] focus:outline-none focus:ring-2 focus:ring-[#007aff]/40 transition-all">
+                </div>
+
+                <button type="button" @click="showSaveModal = true"
+                        class="h-9 px-3 bg-[#f2f2f7] hover:bg-[#e5e5ea] border border-[#e5e5ea] text-[#1c1c1e] text-xs font-medium rounded-xl transition-all">
+                    Save
+                </button>
+
+                <button type="submit"
+                        class="h-9 px-5 bg-[#007aff] hover:bg-[#0062cc] text-white font-medium text-xs rounded-xl shadow-sm shadow-blue-500/20 flex items-center space-x-2 transition-all active:scale-[0.98]">
+                    <span>Send</span>
+                    <svg id="loading-spinner" class="htmx-indicator animate-spin w-3.5 h-3.5 text-white" fill="none"
+                         viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div :class="configCollapsed ? 'h-9' : 'h-[min(220px,32vh)]'"
+                 class="flex flex-col border-b border-[#e5e5ea] bg-white shrink-0 transition-all duration-200 overflow-hidden">
+                <div class="flex items-center border-b border-[#e5e5ea] px-3 bg-[#f9f9fb] space-x-4 text-xs font-medium text-[#8e8e93] shrink-0">
+                    <button type="button" @click="activeTab = 'headers'"
+                            :class="activeTab === 'headers' && 'border-b-2 border-[#007aff] text-[#007aff] font-semibold'"
+                            class="py-2 transition-colors">
+                        Headers (<span x-text="headers.filter(h => h.key).length"></span>)
+                    </button>
+                    <button type="button" @click="activeTab = 'auth'"
+                            :class="activeTab === 'auth' && 'border-b-2 border-[#007aff] text-[#007aff] font-semibold'"
+                            class="py-2 transition-colors">Auth
+                    </button>
+                    <button type="button" @click="activeTab = 'body'"
+                            :class="activeTab === 'body' && 'border-b-2 border-[#007aff] text-[#007aff] font-semibold'"
+                            class="py-2 transition-colors">Body
+                    </button>
+                    <button type="button" @click="configCollapsed = !configCollapsed"
+                            class="ml-auto text-[#8e8e93] hover:text-[#1c1c1e] transition-colors whitespace-nowrap">
+                        <span x-text="configCollapsed ? '▶ Show request details' : '▼ Hide request details'"></span>
+                    </button>
+                </div>
+
+                <div class="flex-1 p-3 overflow-y-auto min-h-0">
+                    <div x-show="activeTab === 'headers'" class="space-y-2">
+                        <template x-for="(h, index) in headers" :key="index">
+                            <div class="flex items-center space-x-2">
+                                <input type="text" name="header_keys[]" x-model="h.key"
+                                       placeholder="Key (e.g. Content-Type)"
+                                       class="flex-1 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                                <input type="text" name="header_vals[]" x-model="h.val" placeholder="Value"
+                                       class="flex-1 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                                <button type="button" @click="removeHeader(index)"
+                                        class="text-[#8e8e93] hover:text-rose-500 text-xs px-1">✕
+                                </button>
+                            </div>
+                        </template>
+                        <button type="button" @click="addHeader()"
+                                class="text-xs text-[#007aff] font-medium hover:underline">+ Add Header
+                        </button>
+                    </div>
+
+                    <div x-show="activeTab === 'auth'" class="space-y-3 max-w-sm">
+                        <div class="flex items-center space-x-3 text-xs">
+                            <label class="font-medium text-[#8e8e93]">Auth Type:</label>
+                            <select name="auth_type" x-model="authType"
+                                    class="bg-[#f2f2f7] border border-[#e5e5ea] rounded-md px-2 py-1 font-medium text-xs">
+                                <option value="none">No Auth</option>
+                                <option value="bearer">Bearer Token</option>
+                                <option value="basic">Basic Auth</option>
+                                <option value="api_key">API Key</option>
+                            </select>
+                        </div>
+                        <div x-show="authType === 'bearer'" class="space-y-1">
+                            <label class="text-[11px] text-[#8e8e93]">Token</label>
+                            <input type="text" name="bearer_token" x-model="bearerToken" placeholder="eyJhbGci..."
+                                   class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                        </div>
+                        <div x-show="authType === 'basic'" class="space-y-2">
+                            <div class="space-y-1">
+                                <label class="text-[11px] text-[#8e8e93]">Username</label>
+                                <input type="text" name="basic_username" x-model="basicUsername" placeholder="username"
+                                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                            </div>
+                            <div class="space-y-1">
+                                <label class="text-[11px] text-[#8e8e93]">Password</label>
+                                <input type="password" name="basic_password" x-model="basicPassword"
+                                       placeholder="password"
+                                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                            </div>
+                        </div>
+                        <div x-show="authType === 'api_key'" class="space-y-2">
+                            <div class="space-y-1">
+                                <label class="text-[11px] text-[#8e8e93]">Key Name</label>
+                                <input type="text" name="api_key_name" x-model="apiKeyName" placeholder="X-API-Key"
+                                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                            </div>
+                            <div class="space-y-1">
+                                <label class="text-[11px] text-[#8e8e93]">Key Value</label>
+                                <input type="text" name="api_key_value" x-model="apiKeyValue" placeholder="value"
+                                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div x-show="activeTab === 'body'" class="h-full flex flex-col">
+                            <textarea name="body"
+                                      x-model="requestBody"
+                                      placeholder='{
+  "title": "foo",
+  "body": "bar"
+}'
+                                      class="w-full h-28 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg p-2.5 font-mono text-xs text-[#1c1c1e] focus:outline-none focus:ring-1 focus:ring-[#007aff] resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div id="response-container" class="flex-1 bg-[#f9f9fb] flex flex-col overflow-hidden min-h-0 pt-1">
+                {% include "partials/response_panel.html" with res=response_data %}
+            </div>
+        </form>
+    </main>
+</div>
+
+<!-- Assertions Modal -->
+<div x-show="showAssertionsModal"
+     class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-2xl max-h-[85vh] flex flex-col"
+         @click.away="showAssertionsModal = false">
+        <div class="flex justify-between items-center border-b border-[#e5e5ea] p-5 pb-3 shrink-0">
+            <div>
+                <h3 class="font-bold text-sm text-[#1c1c1e]">Response Assertions</h3>
+                <p class="text-[11px] text-[#8e8e93] mt-0.5">Define checks to run on each response. Assertions run
+                    automatically after each request.</p>
+            </div>
+            <button @click="showAssertionsModal = false" class="text-[#8e8e93] hover:text-[#1c1c1e] text-sm">✕</button>
+        </div>
+
+        <div class="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+            <div class="mt-4">
+                <label class="flex items-center justify-between">
+                    <span class="text-[11px] font-medium text-[#8e8e93]">Enable Assertions</span>
+                    <input type="checkbox" x-model="assertionsEnabled"
+                           class="h-4 w-4 text-[#007aff] focus:ring-[007aff] border-gray-300 rounded">
+                </label>
+                <p class="text-[10px] text-[#8e8e93] mt-1">When disabled, assertions will not run automatically or
+                    manually.</p>
+            </div>
+            <div class="flex items-center justify-between">
+                <span class="text-[11px] font-medium text-[#8e8e93]"><span x-text="assertions.length"></span> assertion(s) configured</span>
+                <button @click="runAssertions()"
+                        class="px-3 py-1 rounded-lg bg-[#007aff] hover:bg-[#0062cc] text-white text-xs font-medium">Run
+                    All Now
+                </button>
+            </div>
+
+            <div class="space-y-3">
+                <template x-for="(assertion, idx) in assertions" :key="idx">
+                    <div class="border border-[#e5e5ea] rounded-xl p-3 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-[#8e8e93] uppercase tracking-wide">Assertion <span
+                                    x-text="idx + 1"></span></span>
+                            <button @click="assertions.splice(idx, 1)"
+                                    class="text-[#8e8e93] hover:text-rose-500 text-xs">✕
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[10px] text-[#8e8e93] block mb-0.5">Type</label>
+                                <select x-model="assertion.type"
+                                        class="w-full h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px]">
+                                    <option value="status">Status Code</option>
+                                    <option value="json_path">JSON Path</option>
+                                    <option value="header">Header</option>
+                                    <option value="response_time">Response Time</option>
+                                    <option value="regex">Regex Match</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-[#8e8e93] block mb-0.5">Operator</label>
+                                <select x-model="assertion.operator"
+                                        class="w-full h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px]">
+                                    <option value="equals">Equals (=)</option>
+                                    <option value="not_equals">Not Equals (≠)</option>
+                                    <option value="contains">Contains</option>
+                                    <option value="not_contains">Not Contains</option>
+                                    <option value="less_than">Less Than (&lt;)</option>
+                                    <option value="greater_than">Greater Than (&gt;)</option>
+                                    <option value="exists">Exists</option>
+                                    <option value="not_exists">Not Exists</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <template x-if="assertion.type !== 'status' && assertion.type !== 'response_time'">
+                            <div>
+                                <label class="text-[10px] text-[#8e8e93] block mb-0.5">Path / Key</label>
+                                <input type="text" x-model="assertion.path"
+                                       :placeholder="assertion.type === 'json_path' ? '$.data.token' : assertion.type === 'header' ? 'Content-Type' : 'regex pattern'"
+                                       class="w-full h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px] font-mono">
+                            </div>
+                        </template>
+
+                        <template
+                                x-if="assertion.type === 'json_path' && assertion.operator !== 'exists' && assertion.operator !== 'not_exists'">
+                            <div>
+                                <label class="text-[10px] text-[#8e8e93] block mb-0.5">Expected Value</label>
+                                <input type="text" x-model="assertion.expected" placeholder="Expected value"
+                                       class="w-full h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px] font-mono">
+                            </div>
+                        </template>
+
+                        <template x-if="assertion.type === 'status'">
+                            <div>
+                                <label class="text-[10px] text-[#8e8e93] block mb-0.5">Expected Status Code</label>
+                                <input type="number" x-model="assertion.expected" placeholder="200"
+                                       class="w-full h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px] font-mono">
+                            </div>
+                        </template>
+
+                        <template x-if="assertion.type === 'response_time'">
+                            <div>
+                                <label class="text-[10px] text-[#8e8e93] block mb-0.5">Threshold (ms)</label>
+                                <input type="number" x-model="assertion.expected" placeholder="500"
+                                       class="w-full h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px] font-mono">
+                            </div>
+                        </template>
+
+                        <div class="flex items-center space-x-2">
+                            <label class="text-[10px] text-[#8e8e93]">Message on failure:</label>
+                            <input type="text" x-model="assertion.message" placeholder="Status should be 200"
+                                   class="flex-1 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px]">
+                        </div>
+                    </div>
+                </template>
+
+                <button @click="addAssertion()"
+                        class="text-xs text-[#007aff] font-medium hover:underline">+ Add Assertion
+                </button>
+            </div>
+
+            <template x-if="lastAssertionResults && lastAssertionResults.length">
+                <div class="mt-4 pt-4 border-t border-[#e5e5ea]">
+                    <div class="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wide mb-2">Last Run Results
+                    </div>
+                    <div class="space-y-1.5">
+                        <template x-for="(result, idx) in lastAssertionResults" :key="idx">
+                            <div class="flex items-center justify-between text-[11px] px-3 py-1.5 rounded-lg border"
+                                 :class="result.pass ? 'assertion-pass' : result.skipped ? 'assertion-skip' : 'assertion-fail'">
+                                    <span class="flex items-center space-x-2">
+                                        <span x-text="'#' + (idx + 1)"></span>
+                                        <span class="font-medium" x-text="result.type"></span>
+                                        <span class="text-[10px] opacity-75" x-text="result.detail"></span>
+                                    </span>
+                                <span>
+                                        <span x-show="result.pass">✓ Pass</span>
+                                        <span x-show="!result.pass && !result.skipped">✗ Fail</span>
+                                        <span x-show="result.skipped">- Skipped</span>
+                                    </span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <div class="flex justify-end space-x-2 p-5 pt-3 border-t border-[#e5e5ea] shrink-0">
+            <button type="button" @click="showAssertionsModal = false"
+                    class="px-4 py-1.5 rounded-xl border border-[#e5e5ea] text-xs font-medium text-[#1c1c1e] hover:bg-[#f2f2f7]">
+                Close
+            </button>
+            <button type="button" @click="saveAssertions()"
+                    class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm">
+                Save Assertions
+            </button>
+        </div>
+    </div>
+</div>
+
+<div x-show="showCurlModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+     x-cloak>
+    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-lg p-5 space-y-4"
+         @click.away="showCurlModal = false">
+        <div class="flex justify-between items-center border-b border-[#e5e5ea] pb-3">
+            <h3 class="font-bold text-sm text-[#1c1c1e]">Import cURL Command</h3>
+            <button @click="showCurlModal = false" class="text-[#8e8e93] hover:text-[#1c1c1e] text-sm">✕</button>
+        </div>
+        <p class="text-xs text-[#8e8e93]">Paste a cURL command below to automatically extract the URL, HTTP method,
+            headers, and request body.</p>
+        <textarea x-model="rawCurlInput"
+                  placeholder="curl -X POST https://api.example.com/v1/posts -H 'Content-Type: application/json' -d '{&quot;title&quot;: &quot;foo&quot;}'"
+                  class="w-full h-32 bg-[#f2f2f7] border border-[#e5e5ea] rounded-xl p-3 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-[#007aff] resize-none"></textarea>
+        <div class="flex justify-end space-x-2 pt-2">
+            <button type="button" @click="showCurlModal = false"
+                    class="px-4 py-1.5 rounded-xl border border-[#e5e5ea] text-xs font-medium text-[#1c1c1e] hover:bg-[#f2f2f7]">
+                Cancel
+            </button>
+            <button type="button" @click="importCurl()"
+                    class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm">
+                Import into Studio
+            </button>
+        </div>
+    </div>
+</div>
+
+<div x-show="showEnvDrawer" class="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 flex justify-end" x-cloak>
+    <div class="bg-white w-96 h-full shadow-2xl border-l border-[#e5e5ea] p-5 flex flex-col space-y-4"
+         @click.away="showEnvDrawer = false">
+        <div class="flex justify-between items-center border-b border-[#e5e5ea] pb-3">
+            <h3 class="font-bold text-sm text-[#1c1c1e]">
+                Environment Variables
+                <span class="font-normal text-[#8e8e93]" x-show="activeEnvName" x-text="'→ ' + activeEnvName"></span>
+            </h3>
+            <button @click="showEnvDrawer = false" class="text-[#8e8e93] hover:text-[#1c1c1e] text-sm">✕</button>
+        </div>
+
+        <template x-if="!activeEnvId">
+            <div class="flex-1 flex flex-col items-center justify-center text-center space-y-3 px-4">
+                <p class="text-xs text-[#8e8e93]">No environment selected. Variables are stored on the server
+                    per-environment, so pick or create one to edit its values.</p>
+                <button type="button" @click="showSaveEnvAsModal = true"
+                        class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white">
+                    Create Environment
+                </button>
+            </div>
+        </template>
+
+        <template x-if="activeEnvId">
+            <div class="flex-1 flex flex-col space-y-4 min-h-0">
+                <p class="text-xs text-[#8e8e93]">Define variables here to use mustache syntax in your URL, headers, or
+                    body (e.g. <span class="font-mono font-semibold text-[#007aff]">{{baseUrl}}</span>). Saved directly
+                    to this environment on the server — any request using it will pick these up immediately.</p>
+
+                <div class="flex-1 overflow-y-auto space-y-2 min-h-0">
+                    <template x-for="(env, idx) in envVars" :key="idx">
+                        <div class="flex items-center space-x-2">
+                            <input type="text" x-model="env.key" placeholder="Key (e.g. baseUrl)"
+                                   class="w-1/2 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                            <input type="text" x-model="env.val" placeholder="Value"
+                                   class="w-1/2 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                            <button type="button" @click="removeEnvVar(idx)"
+                                    class="text-[#8e8e93] hover:text-rose-500 text-xs px-1">✕
+                            </button>
+                        </div>
+                    </template>
+                    <button type="button" @click="addEnvVar()"
+                            class="text-xs text-[#007aff] font-medium hover:underline">+ Add Variable
+                    </button>
+                </div>
+
+                <div class="border-t border-[#e5e5ea] pt-3 flex justify-between items-center">
+                    <button type="button" @click="deleteActiveEnvironment()"
+                            class="text-xs text-rose-500 font-medium hover:underline">Delete environment
+                    </button>
+                    <div class="flex items-center space-x-3">
+                        <button type="button" @click="showSaveEnvAsModal = true"
+                                class="text-xs text-[#007aff] font-medium hover:underline">Save as new?
+                        </button>
+                        <button type="button" @click="saveEnvVars()"
+                                class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white">
+                            Save Changes
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<div x-show="showNewCollectionModal"
+     class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-sm p-5 space-y-4"
+         @click.away="showNewCollectionModal = false">
+        <h3 class="font-bold text-sm text-[#1c1c1e] border-b border-[#e5e5ea] pb-3">New Collection</h3>
+        <form hx-post="{% url 'create_collection_api' %}" hx-target="#collections-list"
+              @htmx:after-request="showNewCollectionModal = false" class="space-y-3">
+            {% csrf_token %}
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93]">Name</label>
+                <input type="text" name="name" required placeholder="My API"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93]">Description (optional)</label>
+                <input type="text" name="description" placeholder="What this collection is for"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button type="button" @click="showNewCollectionModal = false"
+                        class="px-4 py-1.5 rounded-xl border border-[#e5e5ea] text-xs font-medium text-[#1c1c1e] hover:bg-[#f2f2f7]">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div x-show="showSaveModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+     x-cloak>
+    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-md p-5 space-y-4"
+         @click.away="showSaveModal = false">
+        <h3 class="font-bold text-sm text-[#1c1c1e] border-b border-[#e5e5ea] pb-3">Save Request</h3>
+        <form hx-post="{% url 'save_request_api' %}" hx-target="#collections-list"
+              @htmx:after-request="showSaveModal = false" class="space-y-3">
+            {% csrf_token %}
+            <input type="hidden" name="method" :value="method">
+            <input type="hidden" name="url" :value="url">
+            <input type="hidden" name="body" :value="requestBody">
+            <input type="hidden" name="auth_type" :value="authType">
+            <input type="hidden" name="bearer_token" :value="bearerToken">
+            <input type="hidden" name="basic_username" :value="basicUsername">
+            <input type="hidden" name="basic_password" :value="basicPassword">
+            <input type="hidden" name="api_key_name" :value="apiKeyName">
+            <input type="hidden" name="api_key_value" :value="apiKeyValue">
+            <template x-for="(h, index) in headers" :key="'sk'+index"><input type="hidden" name="header_keys[]"
+                                                                             :value="h.key"></template>
+            <template x-for="(h, index) in headers" :key="'sv'+index"><input type="hidden" name="header_vals[]"
+                                                                             :value="h.val"></template>
+
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93]">Request name</label>
+                <input type="text" name="name" required placeholder="Get user profile"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93]">Collection</label>
+                <select name="collection_id"
+                        class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-xs">
+                    <option value="">✨ Create new ✨</option>
+                    {% for col in collections %}
+                    <option value="{{ col.id }}">{{ col.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93]">New collection name (if creating new)</label>
+                <input type="text" name="new_collection_name" placeholder="My API"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button type="button" @click="showSaveModal = false"
+                        class="px-4 py-1.5 rounded-xl border border-[#e5e5ea] text-xs font-medium text-[#1c1c1e] hover:bg-[#f2f2f7]">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm">
+                    Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div x-show="showSaveEnvAsModal"
+     class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-sm p-5 space-y-4"
+         @click.away="showSaveEnvAsModal = false">
+        <h3 class="font-bold text-sm text-[#1c1c1e] border-b border-[#e5e5ea] pb-3">Save Environment As</h3>
+        <div class="space-y-3">
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93]">Environment name</label>
+                <input type="text" x-model="newEnvName" placeholder="Staging"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93]">Scope to collection (optional)</label>
+                <select x-model="newEnvCollectionId"
+                        class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-xs">
+                    <option value="">Global (all collections)</option>
+                    {% for col in collections %}
+                    <option value="{{ col.id }}">{{ col.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button type="button" @click="showSaveEnvAsModal = false"
+                        class="px-4 py-1.5 rounded-xl border border-[#e5e5ea] text-xs font-medium text-[#1c1c1e] hover:bg-[#f2f2f7]">
+                    Cancel
+                </button>
+                <button type="button" @click="saveEnvironmentAs()"
+                        class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm">
+                    Save
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div x-show="globalToast" x-transition
+     class="fixed bottom-4 left-4 bg-[#1c1c1e] text-white text-xs px-3 py-2 rounded-lg shadow-lg z-50"
+     x-text="globalToast"></div>
+
+<!-- Flow Builder Modal -->
+<div x-show="showFlowBuilder"
+     class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-2xl max-h-[85vh] flex flex-col"
+         @click.away="showFlowBuilder = false">
+        <div class="flex justify-between items-center border-b border-[#e5e5ea] p-5 pb-3 shrink-0">
+            <div>
+                <h3 class="font-bold text-sm text-[#1c1c1e]">New Flow</h3>
+                <p class="text-[11px] text-[#8e8e93] mt-0.5">Chain saved requests together — e.g. Login → Get Profile →
+                    Update Settings. Each step can pull a value out of its response for the next step to use.</p>
+            </div>
+            <button @click="showFlowBuilder = false" class="text-[#8e8e93] hover:text-[#1c1c1e] text-sm">✕</button>
+        </div>
+
+        <div class="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93]">Flow name</label>
+                <input type="text" x-model="flowBuilderName" placeholder="Login then fetch profile"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+
+            <div class="space-y-3">
+                <template x-for="(step, idx) in flowBuilderSteps" :key="idx">
+                    <div class="border border-[#e5e5ea] rounded-xl p-3 space-y-2 relative">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-[#8e8e93] uppercase tracking-wide">Step <span
+                                    x-text="idx + 1"></span></span>
+                            <button @click="flowBuilderSteps.splice(idx, 1)"
+                                    class="text-[#8e8e93] hover:text-rose-500 text-xs">✕
+                            </button>
+                        </div>
+                        <select x-model="step.saved_request_id"
+                                class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-xs">
+                            <option value="">→ Select a saved request →</option>
+                            {% for col in collections %}
+                            <optgroup label="{{ col.name }}">
+                                {% for req in col.requests.all %}
+                                <option value="{{ req.id }}">{{ req.method }} {{ req.name }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endfor %}
+                        </select>
+
+                        <div class="flex items-center space-x-2">
+                            <select x-model="step.extract_type"
+                                    class="h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px]">
+                                <option value="none">Don't extract anything</option>
+                                <option value="json">Extract JSON path</option>
+                                <option value="html">Extract via CSS selector</option>
+                            </select>
+                            <input type="text" x-show="step.extract_type !== 'none'" x-model="step.extract_path"
+                                   :placeholder="step.extract_type === 'json' ? 'data.token' : 'input[name=csrf]::attr(value)'"
+                                   class="flex-1 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 font-mono text-[11px]">
+                            <input type="text" x-show="step.extract_type !== 'none'" x-model="step.extract_var_name"
+                                   placeholder="varName"
+                                   class="w-28 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 font-mono text-[11px]">
+                        </div>
+                    </div>
+                </template>
+
+                <button @click="flowBuilderSteps.push({saved_request_id: '', extract_type: 'none', extract_path: '', extract_var_name: ''})"
+                        class="text-xs text-[#007aff] font-medium hover:underline">+ Add Step
+                </button>
+            </div>
+        </div>
+
+        <div class="flex justify-end space-x-2 p-5 pt-3 border-t border-[#e5e5ea] shrink-0">
+            <button type="button" @click="showFlowBuilder = false"
+                    class="px-4 py-1.5 rounded-xl border border-[#e5e5ea] text-xs font-medium text-[#1c1c1e] hover:bg-[#f2f2f7]">
+                Cancel
+            </button>
+            <button type="button" @click="createFlow()"
+                    class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm">
+                Create Flow
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Flow Diagram / Run Modal -->
+<div x-show="showFlowRunner"
+     class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-4xl max-h-[85vh] flex flex-col"
+         @click.away="showFlowRunner = false" x-show="currentFlow">
+        <div class="flex justify-between items-center border-b border-[#e5e5ea] p-5 pb-3 shrink-0">
+            <h3 class="font-bold text-sm text-[#1c1c1e]" x-text="currentFlow ? currentFlow.name : ''"></h3>
+            <div class="flex items-center space-x-2">
+                <button @click="runFlow()" :disabled="flowRunning"
+                        class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm disabled:opacity-50 flex items-center space-x-1.5">
+                    <span x-show="!flowRunning">▶ Run Flow</span>
+                    <span x-show="flowRunning">Running...</span>
+                </button>
+                <button @click="showFlowRunner = false" class="text-[#8e8e93] hover:text-[#1c1c1e] text-sm">✕</button>
+            </div>
+        </div>
+
+        <div class="p-6 overflow-x-auto overflow-y-auto flex-1 min-h-0">
+            <div class="flex items-stretch space-x-1" x-show="currentFlow">
+                <template x-for="(step, idx) in (currentFlow ? currentFlow.steps : [])" :key="step.id">
+                    <div class="flex items-stretch">
+                        <div class="w-52 shrink-0 border rounded-xl p-3 space-y-1.5"
+                             :class="stepResult(idx) ? resultBorderClass(stepResult(idx)) : 'border-[#e5e5ea]'">
+                            <div class="flex items-center justify-between">
+                                    <span class="font-mono text-[9px] font-bold px-1 py-0.2 rounded text-white"
+                                          :class="methodColor(step.method)" x-text="step.method"></span>
+                                <span class="text-[9px] text-[#8e8e93]" x-text="'Step ' + (idx + 1)"></span>
+                            </div>
+                            <div class="text-xs font-medium text-[#1c1c1e] truncate" x-text="step.name"></div>
+                            <div class="text-[10px] text-[#8e8e93] truncate font-mono" x-text="step.url"></div>
+
+                            <template x-if="stepResult(idx)">
+                                <div class="pt-1 border-t border-[#f2f2f2] space-y-0.5">
+                                    <div class="flex items-center justify-between text-[10px]">
+                                        <span class="font-mono font-bold" :class="resultTextClass(stepResult(idx))"
+                                              x-text="stepResult(idx).status_code"></span>
+                                        <span class="text-[#8e8e93] font-mono"
+                                              x-text="stepResult(idx).elapsed_ms + 'ms'"></span>
+                                    </div>
+                                    <div x-show="stepResult(idx).extracted_error" class="text-[9px] text-rose-500"
+                                         x-text="stepResult(idx).extracted_error"></div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <template x-if="idx < (currentFlow.steps.length - 1)">
+                            <div class="flex flex-col items-center justify-center w-16 shrink-0 px-1">
+                                <span class="text-[#c7c7cc] text-lg">→</span>
+                                <span x-show="step.extract_var_name"
+                                      class="text-[9px] font-mono text-[#007aff] text-center leading-tight"
+                                      x-text="step.extract_var_name"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+
+            <template x-if="flowFinalVars && Object.keys(flowFinalVars).length">
+                <div class="mt-6 pt-4 border-t border-[#e5e5ea]">
+                    <div class="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wide mb-2">Variables after this
+                        run
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <template x-for="(val, key) in flowFinalVars" :key="key">
+                                <span class="text-[10px] font-mono px-2 py-1 rounded-lg bg-[#f2f2f7] text-[#1c1c1e]">
+                                    <span class="text-[#007aff] font-semibold" x-text="key"></span>=<span
+                                        x-text="val"></span>
+                                </span>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.store('relay', {responseTab: 'body'});
+    });
+
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return null;
+    }
+
+    function relayApp() {
+        return {
+            // Request data
+            method: 'GET',
+            url: '{{baseUrl}}/posts/1',
+            activeTab: 'headers',
+            authType: 'none',
+            bearerToken: '',
+            basicUsername: '',
+            basicPassword: '',
+            apiKeyName: '',
+            apiKeyValue: '',
+            requestBody: '',
+            headers: [{key: 'Accept', val: 'application/json'}],
+            currentSavedRequestId: '',
+            configCollapsed: false,
+
+            // Modals
+            showCurlModal: false,
+            rawCurlInput: '',
+            showEnvDrawer: false,
+            showNewCollectionModal: false,
+            showSaveModal: false,
+            showAssertionsModal: false,
+            showSaveEnvAsModal: false,
+            showFlowBuilder: false,
+            showFlowRunner: false,
+
+            // Environment
+            activeEnvId: '',
+            environmentsList: [],
+            envVars: [],
+            activeEnvName: '',
+            newEnvName: '',
+            newEnvCollectionId: '',
+
+            // Flows
+            flowBuilderName: '',
+            flowBuilderSteps: [],
+            currentFlow: null,
+            flowRunning: false,
+            flowResults: [],
+            flowFinalVars: null,
+
+            // Assertions
+            assertions: [],
+            lastAssertionResults: [],
+            assertionResults: [],
+            assertionsEnabled: true,
+
+            // Toast
+            globalToast: '',
+
+            init() {
+                // Load environments
+                const envData = document.getElementById('environments-data');
+                if (envData) {
+                    try {
+                        this.environmentsList = JSON.parse(envData.textContent);
+                    } catch (e) {
+                        this.environmentsList = [];
+                    }
+                }
+
+                // Load assertions
+                const assertionsData = document.getElementById('assertions-data');
+                if (assertionsData) {
+                    try {
+                        this.assertions = JSON.parse(assertionsData.textContent);
+                    } catch (e) {
+                        this.assertions = [
+                            {type: 'status', operator: 'equals', expected: '200', path: '', message: 'Status should be 200'},
+                            {type: 'response_time', operator: 'less_than', expected: '500', path: '', message: 'Response time < 500ms'},
+                        ];
+                    }
+                } else {
+                    this.assertions = [
+                        {type: 'status', operator: 'equals', expected: '200', path: '', message: 'Status should be 200'},
+                        {type: 'response_time', operator: 'less_than', expected: '500', path: '', message: 'Response time < 500ms'},
+                    ];
+                }
+            },
+
+            addHeader() {
+                this.headers.push({key: '', val: ''})
+            },
+            removeHeader(i) {
+                this.headers.splice(i, 1)
+            },
+
+            // ---- Assertions ----
+            addAssertion() {
+                this.assertions.push({
+                    type: 'status',
+                    operator: 'equals',
+                    expected: '200',
+                    path: '',
+                    message: ''
+                });
+            },
+
+            async saveAssertions() {
+                try {
+                    const response = await fetch('/api/save_assertions/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('csrftoken'),
+                        },
+                        body: JSON.stringify({assertions: this.assertions}),
+                    });
+                    const data = await response.json();
+                    if (data.ok) {
+                        this.showToastGlobal('Assertions saved successfully');
+                        this.showAssertionsModal = false;
+                    } else {
+                        this.showToastGlobal('Failed to save assertions: ' + (data.error || 'Unknown error'));
+                    }
+                } catch (error) {
+                    this.showToastGlobal('Error saving assertions: ' + error.message);
+                }
+            },
+
+            async runAssertions() {
+                if (!this.assertionsEnabled) {
+                    return;
+                }
+                this.lastAssertionResults = [];
+
+                const responseData = this.getCurrentResponseData();
+
+                if (!responseData) {
+                    this.showToastGlobal('No response data to assert against');
+                    return;
+                }
+
+                // Log what we're asserting against
+                console.log('Running assertions against:', responseData);
+
+                try {
+                    const response = await fetch('/api/run_assertions/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('csrftoken'),
+                        },
+                        body: JSON.stringify({
+                            assertions: this.assertions,
+                            response_data: responseData
+                        }),
+                    });
+                    const data = await response.json();
+                    console.log('Assertion results:', data);
+
+                    if (data.results) {
+                        this.lastAssertionResults = data.results;
+                        this.assertionResults = data.results;
+                        this.dispatchAssertionResults(data.results);
+                    } else if (data.error) {
+                        this.showToastGlobal('Error running assertions: ' + data.error);
+                    }
+                } catch (error) {
+                    console.error('Error running assertions:', error);
+                    this.showToastGlobal('Error running assertions: ' + error.message);
+                }
+            },
+
+            getCurrentResponseData() {
+                const responseContainer = document.getElementById('response-container');
+                if (!responseContainer) return null;
+
+                try {
+                    // Get status code from data attribute
+                    let status_code = 0;
+                    const statusBadge = responseContainer.querySelector('.status-badge');
+                    if (statusBadge) {
+                        const codeAttr = statusBadge.getAttribute('data-status-code');
+                        if (codeAttr) {
+                            status_code = parseInt(codeAttr);
+                        }
+                    }
+
+                    // Get response time from data attribute
+                    let elapsed_ms = 0;
+                    const timeEl = responseContainer.querySelector('.response-time');
+                    if (timeEl) {
+                        const timeAttr = timeEl.getAttribute('data-elapsed-ms');
+                        if (timeAttr) {
+                            elapsed_ms = parseInt(timeAttr);
+                        }
+                    }
+
+                    // Fallback to text search if data attributes not found
+                    if (status_code === 0) {
+                        const statusMatch = responseContainer.textContent.match(/Status:\s*(\d+)/);
+                        if (statusMatch) {
+                            status_code = parseInt(statusMatch[1]);
+                        }
+                    }
+                    if (elapsed_ms === 0) {
+                        const timeMatch = responseContainer.textContent.match(/(\d+)\s*ms/);
+                        if (timeMatch) {
+                            elapsed_ms = parseInt(timeMatch[1]);
+                        }
+                    }
+
+                    // Extract body
+                    const bodyElement = responseContainer.querySelector('#response-body-code');
+                    const body = bodyElement ? bodyElement.textContent : '';
+
+                    // Extract headers
+                    const headers = {};
+                    const headerRows = responseContainer.querySelectorAll('.header-row');
+                    headerRows.forEach(row => {
+                        const keyEl = row.querySelector('.header-key');
+                        const valEl = row.querySelector('.header-value');
+                        if (keyEl && valEl) {
+                            const key = keyEl.textContent.replace(':', '').trim();
+                            const val = valEl.textContent.trim();
+                            headers[key] = val;
+                        }
+                    });
+
+                    console.log('Extracted response data:', {status_code, elapsed_ms});
+
+                    return {
+                        status_code: status_code,
+                        elapsed_ms: elapsed_ms,
+                        body: body,
+                        headers: headers,
+                    };
+                } catch (e) {
+                    console.warn('Error extracting response data:', e);
+                    return null;
+                }
+            },
+
+            dispatchAssertionResults(results) {
+                const event = new CustomEvent('assertion-results-updated', {
+                    detail: {results: results}
+                });
+                document.dispatchEvent(event);
+
+                const hasFailures = results.some(r => !r.pass && !r.skipped);
+                const indicator = document.querySelector('[x-show="assertions.length > 0"]');
+                if (indicator) {
+                    if (hasFailures) {
+                        indicator.className = 'w-2 h-2 rounded-full bg-rose-500';
+                    } else if (results.every(r => r.pass)) {
+                        indicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
+                    } else {
+                        indicator.className = 'w-2 h-2 rounded-full bg-amber-500';
+                    }
+                }
+
+                const total = results.length;
+                const passed = results.filter(r => r.pass).length;
+                const failed = results.filter(r => !r.pass && !r.skipped).length;
+                if (failed > 0) {
+                    this.showToastGlobal(`❌ Assertions: ${passed}/${total} passed, ${failed} failed`);
+                } else if (passed === total && total > 0) {
+                    this.showToastGlobal(`✅ All ${total} assertions passed!`);
+                }
+            },
+
+            // ---- Environment ----
+            async fetchActiveEnvVars() {
+                if (!this.activeEnvId) {
+                    this.envVars = [];
+                    this.activeEnvName = '';
+                    return;
+                }
+                try {
+                    const res = await fetch(`/api/environments/${this.activeEnvId}/`);
+                    if (!res.ok) {
+                        this.envVars = [];
+                        this.activeEnvName = '';
+                        return;
+                    }
+                    const data = await res.json();
+                    this.envVars = Object.entries(data.vars || {}).map(([key, val]) => ({key, val: String(val)}));
+                    this.activeEnvName = data.name;
+                } catch (e) {
+                    console.warn('Error fetching env vars:', e);
+                }
+            },
+
+            addEnvVar() {
+                this.envVars.push({key: '', val: ''})
+            },
+
+            removeEnvVar(i) {
+                this.envVars.splice(i, 1)
+            },
+
+            getEnvMap() {
+                let map = {};
+                this.envVars.forEach(e => {
+                    if (e.key.trim()) map[e.key.trim()] = e.val;
+                });
+                return map;
+            },
+
+            async saveEnvVars() {
+                if (!this.activeEnvId) {
+                    this.showToastGlobal('Select or create an environment first');
+                    return;
+                }
+                try {
+                    const body = new URLSearchParams();
+                    body.append('vars_json', JSON.stringify(this.getEnvMap()));
+                    const res = await fetch(`/api/environments/${this.activeEnvId}/update/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: body.toString(),
+                    });
+                    if (res.ok) {
+                        this.showEnvDrawer = false;
+                        this.showToastGlobal('Environment saved');
+                    } else {
+                        this.showToastGlobal('Failed to save environment');
+                    }
+                } catch (e) {
+                    this.showToastGlobal('Error saving environment');
+                }
+            },
+
+            async deleteActiveEnvironment() {
+                if (!this.activeEnvId) return;
+                if (!confirm(`Delete environment "${this.activeEnvName}"? This can't be undone.`)) return;
+                try {
+                    await fetch(`/api/environments/${this.activeEnvId}/delete/`, {
+                        method: 'POST',
+                        headers: {'X-CSRFToken': getCookie('csrftoken')},
+                    });
+                    this.activeEnvId = '';
+                    this.envVars = [];
+                    this.activeEnvName = '';
+                    this.showEnvDrawer = false;
+                    await this.refreshEnvironmentsList();
+                    this.showToastGlobal('Environment deleted');
+                } catch (e) {
+                    this.showToastGlobal('Error deleting environment');
+                }
+            },
+
+            async refreshEnvironmentsList() {
+                try {
+                    const res = await fetch('{% url "list_environments_api" %}');
+                    const data = await res.json();
+                    this.environmentsList = (data.environments || []).map(e => ({
+                        id: e.id,
+                        name: e.name,
+                        collection_id: e.collection_id
+                    }));
+                } catch (e) {
+                    console.warn('Error refreshing environments:', e);
+                }
+            },
+
+            showToastGlobal(msg) {
+                this.globalToast = msg;
+                setTimeout(() => {
+                    this.globalToast = '';
+                }, 3000);
+            },
+
+            async saveEnvironmentAs() {
+                if (!this.newEnvName.trim()) return;
+                try {
+                    const body = new URLSearchParams();
+                    body.append('name', this.newEnvName.trim());
+                    body.append('collection_id', this.newEnvCollectionId);
+                    body.append('vars_json', JSON.stringify(this.getEnvMap()));
+
+                    const res = await fetch('{% url "save_environment_api" %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': getCookie('csrftoken'),
+                        },
+                        body: body.toString(),
+                    });
+                    const data = await res.json();
+                    if (data.ok) {
+                        this.showSaveEnvAsModal = false;
+                        this.newEnvName = '';
+                        this.newEnvCollectionId = '';
+                        await this.refreshEnvironmentsList();
+                        this.activeEnvId = String(data.id);
+                        await this.fetchActiveEnvVars();
+                        this.showToastGlobal('Environment saved');
+                    } else {
+                        this.showToastGlobal(data.error || 'Failed to save environment');
+                    }
+                } catch (e) {
+                    this.showToastGlobal('Error saving environment');
+                }
+            },
+
+            // ---- Flows ----
+            openFlowBuilder() {
+                this.flowBuilderName = '';
+                this.flowBuilderSteps = [{
+                    saved_request_id: '',
+                    extract_type: 'none',
+                    extract_path: '',
+                    extract_var_name: ''
+                }];
+                this.showFlowBuilder = true;
+            },
+
+            async createFlow() {
+                if (!this.flowBuilderName.trim()) {
+                    this.showToastGlobal('Give the flow a name');
+                    return;
+                }
+                const steps = this.flowBuilderSteps.filter(s => s.saved_request_id);
+                if (!steps.length) {
+                    this.showToastGlobal('Add at least one step');
+                    return;
+                }
+
+                try {
+                    const body = new URLSearchParams();
+                    body.append('name', this.flowBuilderName.trim());
+                    body.append('steps_json', JSON.stringify(steps));
+
+                    const res = await fetch('{% url "create_flow_api" %}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: body.toString(),
+                    });
+                    if (res.ok) {
+                        const html = await res.text();
+                        document.getElementById('flows-list').innerHTML = html;
+                        this.showFlowBuilder = false;
+                        this.showToastGlobal('Flow created');
+                    } else {
+                        this.showToastGlobal('Failed to create flow');
+                    }
+                } catch (e) {
+                    this.showToastGlobal('Error creating flow');
+                }
+            },
+
+            async openFlow(id) {
+                try {
+                    const res = await fetch(`/api/flows/${id}/`);
+                    const data = await res.json();
+                    if (data.error) {
+                        this.showToastGlobal(data.error);
+                        return;
+                    }
+                    this.currentFlow = data;
+                    this.flowResults = [];
+                    this.flowFinalVars = null;
+                    this.showFlowRunner = true;
+                } catch (e) {
+                    this.showToastGlobal('Error loading flow');
+                }
+            },
+
+            async runFlow() {
+                if (!this.currentFlow) return;
+                this.flowRunning = true;
+                this.flowResults = [];
+                this.flowFinalVars = null;
+                try {
+                    const body = new URLSearchParams();
+                    body.append('active_env_id', this.activeEnvId);
+                    const res = await fetch(`/api/flows/${this.currentFlow.id}/run/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: body.toString(),
+                    });
+                    const data = await res.json();
+                    if (data.error) {
+                        this.showToastGlobal(data.error);
+                        return;
+                    }
+                    this.flowResults = data.results || [];
+                    this.flowFinalVars = data.final_vars || null;
+                    this.$dispatch('history-refresh');
+                    if (this.activeEnvId) await this.fetchActiveEnvVars();
+                } catch (e) {
+                    this.showToastGlobal('Error running flow');
+                } finally {
+                    this.flowRunning = false;
+                }
+            },
+
+            stepResult(idx) {
+                return this.flowResults[idx] || null;
+            },
+
+            methodColor(method) {
+                if (method === 'GET') return 'bg-emerald-500';
+                if (method === 'POST') return 'bg-blue-500';
+                if (method === 'PUT' || method === 'PATCH') return 'bg-amber-500';
+                return 'bg-rose-500';
+            },
+
+            resultBorderClass(r) {
+                if (r.status_category === 'success') return 'border-emerald-300';
+                if (r.status_category === 'redirect') return 'border-blue-300';
+                if (r.status_category === 'client_error') return 'border-amber-300';
+                return 'border-rose-300';
+            },
+
+            resultTextClass(r) {
+                if (r.status_category === 'success') return 'text-emerald-600';
+                if (r.status_category === 'redirect') return 'text-blue-600';
+                if (r.status_category === 'client_error') return 'text-amber-600';
+                return 'text-rose-600';
+            },
+
+            async loadSavedRequest(id) {
+                try {
+                    const res = await fetch(`/api/requests/${id}/load/`);
+                    const data = await res.json();
+                    this._applyLoadedRequest(data);
+                } catch (e) {
+                    this.showToastGlobal('Error loading request');
+                }
+            },
+
+            async loadHistoryItem(id) {
+                try {
+                    const res = await fetch(`/api/history/${id}/load/`);
+                    const data = await res.json();
+                    this._applyLoadedRequest(data);
+                } catch (e) {
+                    this.showToastGlobal('Error loading history item');
+                }
+            },
+
+            _applyLoadedRequest(data) {
+                if (data.error) return;
+                this.method = data.method;
+                this.url = data.url;
+                this.requestBody = data.body || '';
+                this.authType = data.auth_type || 'none';
+                this.bearerToken = data.bearer_token || '';
+                this.basicUsername = data.basic_username || '';
+                this.basicPassword = data.basic_password || '';
+                this.apiKeyName = data.api_key_name || '';
+                this.apiKeyValue = data.api_key_value || '';
+                this.headers = (data.headers && data.headers.length) ? data.headers : [{key: '', val: ''}];
+                this.currentSavedRequestId = data.saved_request_id || '';
+            },
+
+            prepareRequestData(event) {
+                this.assertionResults = [];
+            },
+
+            handleResponse(event) {
+                setTimeout(() => {
+                    if (this.assertions && this.assertions.length > 0 && this.assertionsEnabled) {
+                        this.runAssertions();
+                    }
+                }, 500);
+
+                this.$dispatch('history-refresh');
+            },
+
+            importCurl() {
+                if (!this.rawCurlInput.trim()) return;
+                let text = this.rawCurlInput.trim();
+
+                let methodMatch = text.match(/-X\s+([A-Z]+)/i) || text.match(/--request\s+([A-Z]+)/i);
+                if (methodMatch) this.method = methodMatch[1].toUpperCase();
+                else if (text.includes('-d ') || text.includes('--data')) this.method = 'POST';
+                else this.method = 'GET';
+
+                let urlMatch = text.match(/(https?:\/\/[^\s'"]+)/) || text.match(/'([^']*)'/) || text.match(/"([^"]*)"/);
+                if (urlMatch) this.url = urlMatch[1];
+
+                let headerRegex = /(?:-H|--header)\s+["']?([^"'\n]+)["']?/g;
+                let match;
+                let newHeaders = [];
+                while ((match = headerRegex.exec(text)) !== null) {
+                    let parts = match[1].split(':');
+                    if (parts.length >= 2) {
+                        newHeaders.push({key: parts[0].trim(), val: parts.slice(1).join(':').trim()});
+                    }
+                }
+                if (newHeaders.length) this.headers = newHeaders;
+
+                let bodyMatch = text.match(/(?:-d|--data|--data-raw)\s+["']?(\{[\s\S]*\}|[^"'\n]+)["']?/);
+                if (bodyMatch) this.requestBody = bodyMatch[1];
+
+                this.rawCurlInput = '';
+                this.showCurlModal = false;
+            }
+        }
+    }
+
+    document.body.addEventListener('htmx:afterOnLoad', function (event) {
+        if (window.Prism) {
+            Prism.highlightAll();
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            document.body.dispatchEvent(new Event('keyboard-send'));
+        }
+    });
+</script>
+</body>
+</html>

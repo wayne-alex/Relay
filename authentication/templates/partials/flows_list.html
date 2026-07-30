@@ -1,0 +1,19 @@
+{% for flow in flows %}
+<div class="rounded-md hover:bg-black/5 text-xs group">
+    <div class="flex items-center justify-between px-2 py-1.5">
+        <button @click="openFlow({{ flow.id }})" class="flex items-center space-x-2 flex-1 text-left min-w-0">
+            <span class="text-[#8e8e93] shrink-0">⛓</span>
+            <span class="truncate text-[#3a3a3c] font-medium">{{ flow.name }}</span>
+            <span class="text-[9px] text-[#8e8e93] shrink-0">{{ flow.steps.count }} step{{ flow.steps.count|pluralize }}</span>
+        </button>
+        <button title="Delete flow" class="opacity-0 group-hover:opacity-100 text-[#8e8e93] hover:text-rose-500 text-[10px] px-1"
+                hx-post="{% url 'delete_flow_api' flow.id %}"
+                hx-target="#flows-list"
+                hx-confirm="Delete flow '{{ flow.name }}'?">✕</button>
+    </div>
+</div>
+{% empty %}
+<div class="text-[11px] text-[#8e8e93] px-2 py-4 text-center">
+    No flows yet — chain saved requests together (e.g. Login → Get Profile) to build one.
+</div>
+{% endfor %}

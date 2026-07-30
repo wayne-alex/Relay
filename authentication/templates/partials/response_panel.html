@@ -1,0 +1,379 @@
+{% load static %}
+<div class="flex-1 flex flex-col overflow-hidden min-h-0" x-data="responsePanel()" x-init="init()">
+
+    {{ snippets.curl|json_script:"snippet-curl" }}
+    {{ snippets.python|json_script:"snippet-python" }}
+    {{ snippets.javascript|json_script:"snippet-javascript" }}
+
+    <!-- Status Bar -->
+<div class="flex items-center justify-between px-3 py-2 border-b border-[#e5e5ea] bg-white shrink-0">
+    <div class="flex items-center space-x-3">
+        <span class="text-xs font-bold font-mono px-2 py-0.5 rounded-md status-badge
+            {% if res.status_category == 'success' %}bg-emerald-50 text-emerald-700
+            {% elif res.status_category == 'redirect' %}bg-blue-50 text-blue-700
+            {% elif res.status_category == 'client_error' %}bg-amber-50 text-amber-700
+            {% else %}bg-rose-50 text-rose-700{% endif %}"
+            data-status-code="{{ res.status_code }}">
+            {{ res.status_code }} {{ res.status_text }}
+        </span>
+        <span class="text-[11px] text-[#8e8e93] font-mono response-time" data-elapsed-ms="{{ res.elapsed_ms }}">{{ res.elapsed_ms }} ms</span>
+        <!-- ... rest of status bar ... -->
+    </div>
+</div>
+    <!-- Assertion Results Detail Bar -->
+    <div x-show="assertionResults && assertionResults.length"
+         class="px-3 py-1.5 bg-[#f9f9fb] border-b border-[#e5e5ea] flex items-center flex-wrap gap-1.5 shrink-0">
+        <span class="text-[10px] font-semibold text-[#8e8e93] uppercase tracking-wider mr-1">Assertions:</span>
+        <template x-for="(result, idx) in assertionResults" :key="idx">
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full font-mono"
+                  :class="result.pass ? 'bg-emerald-100 text-emerald-700' : result.skipped ? 'bg-gray-100 text-gray-500' : 'bg-rose-100 text-rose-700'">
+                <span x-text="result.type"></span>
+                <span x-show="result.pass">✓</span>
+                <span x-show="!result.pass && !result.skipped">✗</span>
+                <span x-show="result.skipped">-</span>
+            </span>
+        </template>
+        <span x-show="allAssertionsPassed"
+              class="text-[10px] text-emerald-600 font-medium ml-1">✅ All passed</span>
+        <span x-show="!allAssertionsPassed && assertionResults.some(r => !r.skipped)"
+              class="text-[10px] text-rose-600 font-medium ml-1">❌ Some failed</span>
+        <button @click="showAssertionDetails = !showAssertionDetails"
+                class="text-[10px] text-[#007aff] hover:underline ml-auto font-medium">
+            <span x-text="showAssertionDetails ? 'Hide details' : 'Show details'"></span>
+        </button>
+    </div>
+
+    <!-- Assertion Details -->
+    <div x-show="showAssertionDetails && assertionResults && assertionResults.length"
+         class="px-3 py-2 bg-[#f9f9fb] border-b border-[#e5e5ea] space-y-1 shrink-0">
+        <template x-for="(result, idx) in assertionResults" :key="idx">
+            <div class="flex items-start justify-between text-[10px] font-mono"
+                 :class="result.pass ? 'text-emerald-700' : result.skipped ? 'text-gray-500' : 'text-rose-700'">
+                <div class="flex items-center space-x-2">
+                    <span class="font-bold" x-text="'#' + (idx + 1)"></span>
+                    <span x-text="result.type"></span>
+                    <span class="text-[9px] opacity-75" x-text="result.detail"></span>
+                </div>
+                <span>
+                    <span x-show="result.pass">✓ Pass</span>
+                    <span x-show="!result.pass && !result.skipped">✗ Fail</span>
+                    <span x-show="result.skipped">- Skipped</span>
+                </span>
+            </div>
+        </template>
+    </div>
+
+    <!-- Tabs -->
+<!-- Tabs - Remove any assertion running from these -->
+<div class="flex items-center border-b border-[#e5e5ea] px-3 bg-[#f9f9fb] space-x-4 text-xs font-medium text-[#8e8e93] shrink-0 overflow-x-auto">
+    <button @click="setTab('body')" :class="tab === 'body' && 'border-b-2 border-[#007aff] text-[#007aff] font-semibold'" class="py-2 transition-colors whitespace-nowrap">Body</button>
+    <button @click="setTab('headers')" :class="tab === 'headers' && 'border-b-2 border-[#007aff] text-[#007aff] font-semibold'" class="py-2 transition-colors whitespace-nowrap">
+        Headers ({{ res.headers|length }})
+    </button>
+    {% if is_html %}
+    <button @click="setTab('preview')" :class="tab === 'preview' && 'border-b-2 border-[#007aff] text-[#007aff] font-semibold'" class="py-2 transition-colors whitespace-nowrap">Preview</button>
+    <button @click="setTab('tables')" :class="tab === 'tables' && 'border-b-2 border-[#007aff] text-[#007aff] font-semibold'" class="py-2 transition-colors whitespace-nowrap">
+        Tables ({{ html_tables|length }})
+    </button>
+    {% endif %}
+    <button @click="setTab('extract')" :class="tab === 'extract' && 'border-b-2 border-[#007aff] text-[#007aff] font-semibold'" class="py-2 transition-colors whitespace-nowrap">
+        Extract Variable
+    </button>
+    <button @click="setTab('code')" :class="tab === 'code' && 'border-b-2 border-[#007aff] text-[#007aff] font-semibold'" class="py-2 transition-colors whitespace-nowrap">Code</button>
+</div>
+    <div class="flex-1 overflow-hidden flex flex-col min-h-0">
+
+        <!-- Body Tab -->
+        <div x-show="tab === 'body'" class="flex-1 flex flex-col overflow-hidden min-h-0">
+            <div class="px-3 py-2 border-b border-[#e5e5ea] flex items-center space-x-2 shrink-0">
+                <input type="text" x-model="search" @input="updateMatchCount()"
+                       placeholder="Search in response?"
+                       class="flex-1 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg pl-2.5 pr-2.5 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                <span class="text-[10px] text-[#8e8e93] whitespace-nowrap" x-show="search" x-text="matchCount + (matchCount === 1 ? ' match' : ' matches')"></span>
+            </div>
+            <pre class="flex-1 overflow-auto p-3 text-xs select-text min-h-0"><code id="response-body-code" class="language-json">{{ res.formatted_body }}</code></pre>
+        </div>
+
+        <!-- Headers Tab - Added CSS classes for extraction -->
+        <div x-show="tab === 'headers'" class="flex-1 overflow-auto p-3 space-y-0.5 select-text min-h-0">
+            {% for k, v in res.headers.items %}
+            <div class="flex items-start justify-between text-xs font-mono border-b border-[#f2f2f7] py-1.5 group header-row">
+                <span class="header-key text-[#8e8e93] mr-2 shrink-0">{{ k }}:</span>
+                <span class="header-value flex-1 text-[#1c1c1e] break-all">{{ v }}</span>
+                <button @click="copyText('{{ v|escapejs }}')" title="Copy value"
+                        class="opacity-0 group-hover:opacity-100 ml-2 text-[#007aff] shrink-0">📋</button>
+            </div>
+            {% empty %}
+            <div class="text-xs text-[#8e8e93] italic">No response headers.</div>
+            {% endfor %}
+        </div>
+
+        {% if is_html %}
+        <!-- HTML Preview Tab -->
+        <div x-show="tab === 'preview'" class="flex-1 overflow-hidden min-h-0">
+            <iframe sandbox="" srcdoc="{{ res.body }}" class="w-full h-full border-0 bg-white"></iframe>
+        </div>
+
+        <!-- HTML Tables Tab -->
+        <div x-show="tab === 'tables'" class="flex-1 overflow-auto p-3 space-y-6 select-text min-h-0">
+            {% for table in html_tables %}
+            <div class="space-y-1">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wide">Table {{ forloop.counter }}</span>
+                    <button @click="copyTableAsCSV({{ forloop.counter0 }})" class="text-[11px] text-[#007aff] hover:underline font-medium">📋 Copy as CSV</button>
+                </div>
+                <div class="overflow-x-auto border border-[#e5e5ea] rounded-lg">
+                    <table class="w-full text-xs" id="html-table-{{ forloop.counter0 }}">
+                        {% for row in table.rows %}
+                        <tr class="border-b border-[#f2f2f2] last:border-0 {% if forloop.first %}bg-[#f9f9fb] font-semibold{% endif %}">
+                            {% for cell in row %}
+                            <td class="px-2 py-1.5 whitespace-nowrap">{{ cell }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+            </div>
+            {% empty %}
+            <div class="text-xs text-[#8e8e93] italic">No &lt;table&gt; elements found in this response.</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Extract Variable Tab -->
+        <div x-show="tab === 'extract'" class="p-4 space-y-3 max-w-md overflow-y-auto min-h-0">
+            {% if is_json %}
+            <p class="text-xs text-[#8e8e93] leading-relaxed">
+                Pull a value out of this JSON response and save it as a variable you can reuse as
+                <span class="font-mono text-[#007aff] font-semibold">{{ var }}</span>
+                in future requests — perfect for grabbing an auth token after login.
+            </p>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93] font-medium">JSON path (dot notation)</label>
+                <input type="text" x-model="extractPath" placeholder="data.token"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93] font-medium">Save as variable name</label>
+                <input type="text" x-model="extractVarName" placeholder="authToken"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93] font-medium">Persist into environment</label>
+                <select x-model="extractEnvId" class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-xs">
+                    <option value="">Session only (this browser tab)</option>
+                    {% for env in environments %}
+                    <option value="{{ env.id }}">{{ env.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button @click="extractVariable()" class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-white text-xs font-medium transition-colors">
+                Extract &amp; Save
+            </button>
+            <p x-show="extractMessage" x-text="extractMessage" class="text-xs font-medium" :class="extractError ? 'text-rose-600' : 'text-emerald-600'"></p>
+
+            {% elif is_html %}
+            <p class="text-xs text-[#8e8e93] leading-relaxed">
+                Pull a value out of this HTML page using a CSS selector and save it as a variable —
+                grab a CSRF token from a hidden input, a price off a product page, anything on the DOM.
+            </p>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93] font-medium">CSS selector</label>
+                <input type="text" x-model="extractSelector" placeholder="input[name=csrfmiddlewaretoken]::attr(value)"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                <p class="text-[10px] text-[#8e8e93]">Add <span class="font-mono">::text</span> or <span class="font-mono">::attr(name)</span> to control what gets pulled — defaults to text content.</p>
+            </div>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93] font-medium">Save as variable name</label>
+                <input type="text" x-model="extractVarName" placeholder="csrfToken"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93] font-medium">Persist into environment</label>
+                <select x-model="extractEnvId" class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-xs">
+                    <option value="">Session only (this browser tab)</option>
+                    {% for env in environments %}
+                    <option value="{{ env.id }}">{{ env.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button @click="extractHtmlVariable()" class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-white text-xs font-medium transition-colors">
+                Extract &amp; Save
+            </button>
+            <p x-show="extractMessage" x-text="extractMessage" class="text-xs font-medium" :class="extractError ? 'text-rose-600' : 'text-emerald-600'"></p>
+
+            {% else %}
+            <p class="text-xs text-[#8e8e93]">This response isn't JSON or HTML, so there's no structured path to extract a value from.</p>
+            {% endif %}
+        </div>
+
+        <!-- Code Tab -->
+        <div x-show="tab === 'code'" class="flex-1 overflow-hidden flex flex-col min-h-0" x-data="{ lang: 'curl' }">
+            <div class="flex items-center space-x-3 px-3 pt-2 pb-1 text-xs font-medium text-[#8e8e93] shrink-0">
+                <button @click="lang = 'curl'" :class="lang === 'curl' && 'text-[#007aff] font-semibold'">cURL</button>
+                <button @click="lang = 'python'" :class="lang === 'python' && 'text-[#007aff] font-semibold'">Python</button>
+                <button @click="lang = 'javascript'" :class="lang === 'javascript' && 'text-[#007aff] font-semibold'">JavaScript</button>
+                <button @click="copyText(lang === 'curl' ? curlSnippet : lang === 'python' ? pythonSnippet : jsSnippet)"
+                        class="ml-auto flex items-center space-x-1 text-[#007aff] hover:bg-[#007aff]/10 px-2 py-1 rounded-md">
+                    <span>📋</span><span>Copy</span>
+                </button>
+            </div>
+            <pre x-show="lang === 'curl'" class="flex-1 overflow-auto p-3 text-xs select-text min-h-0"><code class="language-bash">{{ snippets.curl }}</code></pre>
+            <pre x-show="lang === 'python'" class="flex-1 overflow-auto p-3 text-xs select-text min-h-0"><code class="language-python">{{ snippets.python }}</code></pre>
+            <pre x-show="lang === 'javascript'" class="flex-1 overflow-auto p-3 text-xs select-text min-h-0"><code class="language-javascript">{{ snippets.javascript }}</code></pre>
+        </div>
+    </div>
+
+    <!-- Local Toast -->
+    <div x-show="toastMsg" x-transition
+         class="fixed bottom-4 right-4 bg-[#1c1c1e] text-white text-xs px-3 py-2 rounded-lg shadow-lg z-50"
+         x-text="toastMsg"></div>
+</div>
+
+<script>
+    function responsePanel() {
+    return {
+        tab: (window.Alpine && Alpine.store('relay')) ? Alpine.store('relay').responseTab : 'body',
+        search: '',
+        matchCount: 0,
+        extractPath: '',
+        extractSelector: '',
+        extractVarName: '',
+        extractEnvId: '',
+        extractMessage: '',
+        extractError: false,
+        toastMsg: '',
+        curlSnippet: JSON.parse(document.getElementById('snippet-curl').textContent),
+        pythonSnippet: JSON.parse(document.getElementById('snippet-python').textContent),
+        jsSnippet: JSON.parse(document.getElementById('snippet-javascript').textContent),
+
+        // Assertion properties
+        assertionResults: [],
+        showAssertionDetails: false,
+
+        init() {
+            if (window.Prism) Prism.highlightAll();
+            // Listen for assertion results from parent
+            document.addEventListener('assertion-results-updated', (e) => {
+                this.assertionResults = e.detail.results || [];
+                if (this.assertionResults.length > 0) {
+                    this.showAssertionDetails = true;
+                }
+            });
+            // Listen for response updates from HTMX
+            document.addEventListener('htmx:afterOnLoad', () => {
+                if (window.Prism) Prism.highlightAll();
+            });
+        },
+
+        get allAssertionsPassed() {
+            if (!this.assertionResults || this.assertionResults.length === 0) return false;
+            return this.assertionResults.every(r => r.pass || r.skipped);
+        },
+
+        get hasAssertions() {
+            return this.assertionResults && this.assertionResults.length > 0;
+        },
+
+        setTab(t) {
+            // Just switch the tab, don't run any assertions
+            this.tab = t;
+            if (window.Alpine && Alpine.store('relay')) {
+                Alpine.store('relay').responseTab = t;
+            }
+        },
+
+        copyText(text) {
+            navigator.clipboard.writeText(text).then(() => this.showToast('Copied to clipboard'));
+        },
+        copyAll() {
+            const el = document.getElementById('response-body-code');
+            if (el) this.copyText(el.innerText);
+        },
+        copyTableAsCSV(index) {
+            const table = document.getElementById(`html-table-${index}`);
+            if (!table) return;
+            const rows = Array.from(table.querySelectorAll('tr')).map(tr =>
+                Array.from(tr.querySelectorAll('td')).map(td => `"${td.textContent.replace(/"/g, '""')}"`).join(',')
+            );
+            this.copyText(rows.join('\n'));
+        },
+        showToast(msg) {
+            this.toastMsg = msg;
+            setTimeout(() => { this.toastMsg = ''; }, 1800);
+        },
+        updateMatchCount() {
+            const el = document.getElementById('response-body-code');
+            if (!el || !this.search) { this.matchCount = 0; return; }
+            const text = el.textContent || '';
+            const escaped = this.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const re = new RegExp(escaped, 'gi');
+            const matches = text.match(re);
+            this.matchCount = matches ? matches.length : 0;
+        },
+        async extractVariable() {
+            this.extractMessage = '';
+            if (!this.extractPath.trim() || !this.extractVarName.trim()) {
+                this.extractMessage = 'Both a path and a variable name are required.';
+                this.extractError = true;
+                return;
+            }
+            const body = new URLSearchParams();
+            body.append('var_name', this.extractVarName.trim());
+            body.append('path_key', this.extractPath.trim());
+            body.append('env_id', this.extractEnvId);
+
+            const res = await fetch('{% url "extract_variable_api" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken'),
+                },
+                body: body.toString(),
+            });
+            const data = await res.json();
+            if (data.error) {
+                this.extractMessage = data.error;
+                this.extractError = true;
+            } else {
+                this.extractMessage = `Saved ${data.var_name} = ${data.value}`;
+                this.extractError = false;
+                this.showToast(`Variable "${data.var_name}" saved`);
+                if (this.extractEnvId) {
+                    window.dispatchEvent(new CustomEvent('environment-updated', { detail: { id: this.extractEnvId } }));
+                }
+            }
+        },
+        async extractHtmlVariable() {
+            this.extractMessage = '';
+            if (!this.extractSelector.trim() || !this.extractVarName.trim()) {
+                this.extractMessage = 'Both a selector and a variable name are required.';
+                this.extractError = true;
+                return;
+            }
+            const body = new URLSearchParams();
+            body.append('var_name', this.extractVarName.trim());
+            body.append('selector', this.extractSelector.trim());
+            body.append('env_id', this.extractEnvId);
+
+            const res = await fetch('{% url "extract_html_variable_api" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken'),
+                },
+                body: body.toString(),
+            });
+            const data = await res.json();
+            if (data.error) {
+                this.extractMessage = data.error;
+                this.extractError = true;
+            } else {
+                this.extractMessage = `Saved ${data.var_name} = ${data.value}`;
+                this.extractError = false;
+                this.showToast(`Variable "${data.var_name}" saved`);
+            }
+        }
+    }
+}
+</script>
