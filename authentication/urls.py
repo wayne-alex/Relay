@@ -40,5 +40,10 @@ urlpatterns = [
     path('api/save_assertions/', views.save_assertions, name='save_assertions_api'),
     path('api/get_assertions/', views.get_assertions, name='get_assertions_api'),
     path('api/run_assertions/', views.run_assertions, name='run_assertions_api'),
+    path('api/save_assertions/', views.save_assertions_api, name='save_assertions_api'),
+    path('api/run_assertions/', views.run_assertions_api, name='run_assertions_api'),
+    path('api/requests/update/', views.update_request_api, name='update_request_api'),
+    path('api/refresh-collections/', views.refresh_collections_api, name='refresh_collections_api'),
+path('api/flows/<int:flow_id>/update/', views.update_flow_api, name='update_flow_api'),
 
 ]

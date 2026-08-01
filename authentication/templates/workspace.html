@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Relay ⚡ Modern API Engine</title>
+    <title>Relay — Modern API Engine</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
@@ -21,39 +21,40 @@
             width: 5px;
             height: 5px;
         }
+
         ::-webkit-scrollbar-track {
             background: transparent;
         }
+
         ::-webkit-scrollbar-thumb {
             background: rgba(0, 0, 0, 0.12);
             border-radius: 99px;
         }
+
         ::-webkit-scrollbar-thumb:hover {
             background: rgba(0, 0, 0, 0.25);
         }
+
         [x-cloak] {
             display: none !important;
         }
+
         .assertion-pass {
             background: #d1fae5;
             color: #065f46;
             border-color: #a7f3d0;
         }
+
         .assertion-fail {
             background: #fee2e2;
             color: #991b1b;
             border-color: #fca5a5;
         }
+
         .assertion-skip {
             background: #f3f4f6;
             color: #6b7280;
             border-color: #e5e7eb;
-        }
-        .header-key {
-            color: #8e8e93 !important;
-        }
-        .header-value {
-            color: #1c1c1e !important;
         }
     </style>
 </head>
@@ -81,6 +82,7 @@
     <div class="flex items-center space-x-3">
         {{ environments_json|json_script:"environments-data" }}
         {{ assertions|json_script:"assertions-data" }}
+        {{ collections_json|json_script:"collections-data" }}
 
         <select x-model="activeEnvId" @change="fetchActiveEnvVars()"
                 class="h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px] font-medium text-[#1c1c1e] focus:outline-none focus:ring-2 focus:ring-[#007aff]/40 cursor-pointer max-w-[160px]">
@@ -100,14 +102,13 @@
 
         <button @click="showCurlModal = true"
                 class="text-xs bg-[#f2f2f7] hover:bg-[#e5e5ea] text-[#1c1c1e] font-medium px-3 py-1 rounded-lg border border-[#e5e5ea] transition-all flex items-center space-x-1">
-            <span>⬇ Import cURL</span>
+            <span>📋 Import cURL</span>
         </button>
 
         <button @click="showAssertionsModal = true"
                 class="text-xs bg-[#f2f2f7] hover:bg-[#e5e5ea] text-[#1c1c1e] font-medium px-3 py-1 rounded-lg border border-[#e5e5ea] transition-all flex items-center space-x-1">
             <span>✅ Assertions</span>
-            <span x-show="assertions.length > 0" class="w-2 h-2 rounded-full"
-                  :class="assertionResults.some(r => r && !r.pass && !r.skipped) ? 'bg-rose-500' : assertionResults.every(r => r && r.pass) ? 'bg-emerald-500' : 'bg-amber-500'"></span>
+            <span x-show="assertions.length > 0" class="w-2 h-2 rounded-full" :class="assertionBadgeColor()"></span>
         </button>
     </div>
 </header>
@@ -176,7 +177,8 @@
               hx-indicator="#loading-spinner"
               hx-trigger="submit, keyboard-send from:body"
               @htmx:before-request="prepareRequestData($event)"
-              @htmx:after-request="handleResponse($event)"
+              @htmx:after-request="$dispatch('history-refresh')"
+              @htmx:after-swap="handleResponseSwap($event)"
               class="flex flex-col h-full min-h-0">
             {% csrf_token %}
 
@@ -197,19 +199,19 @@
                     <input type="text"
                            name="url"
                            x-model="url"
-                           placeholder="https://api.example.com/v1/resource or {{baseUrl}}/posts/1"
+                           placeholder="https://api.example.com/v1/resource or {{ baseUrl }}/posts/1"
                            required
                            class="w-full h-9 bg-[#f2f2f7] border border-[#e5e5ea] rounded-xl px-3.5 font-mono text-xs text-[#1c1c1e] placeholder-[#8e8e93] focus:outline-none focus:ring-2 focus:ring-[#007aff]/40 transition-all">
                 </div>
 
                 <button type="button" @click="showSaveModal = true"
                         class="h-9 px-3 bg-[#f2f2f7] hover:bg-[#e5e5ea] border border-[#e5e5ea] text-[#1c1c1e] text-xs font-medium rounded-xl transition-all">
-                    Save
+                    💾 Save
                 </button>
 
                 <button type="submit"
                         class="h-9 px-5 bg-[#007aff] hover:bg-[#0062cc] text-white font-medium text-xs rounded-xl shadow-sm shadow-blue-500/20 flex items-center space-x-2 transition-all active:scale-[0.98]">
-                    <span>Send</span>
+                    <span>🚀 Send</span>
                     <svg id="loading-spinner" class="htmx-indicator animate-spin w-3.5 h-3.5 text-white" fill="none"
                          viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
@@ -238,7 +240,7 @@
                     </button>
                     <button type="button" @click="configCollapsed = !configCollapsed"
                             class="ml-auto text-[#8e8e93] hover:text-[#1c1c1e] transition-colors whitespace-nowrap">
-                        <span x-text="configCollapsed ? '▶ Show request details' : '▼ Hide request details'"></span>
+                        <span x-text="configCollapsed ? '▼ Show request details' : '▲ Hide request details'"></span>
                     </button>
                 </div>
 
@@ -323,6 +325,36 @@
     </main>
 </div>
 
+<!-- Edit Request Modal -->
+<div x-show="showEditModal"
+     class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-md p-5 space-y-4"
+         @click.away="showEditModal = false">
+        <h3 class="font-bold text-sm text-[#1c1c1e] border-b border-[#e5e5ea] pb-3">Edit Request</h3>
+        <form @submit.prevent="saveEditedRequest()" class="space-y-3">
+            {% csrf_token %}
+            <input type="hidden" name="edit_request_id" :value="editingRequestId">
+
+            <div class="space-y-1">
+                <label class="text-[11px] text-[#8e8e93]">Request name</label>
+                <input type="text" x-model="editRequestName" required placeholder="Get user profile"
+                       class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-2">
+                <button type="button" @click="showEditModal = false"
+                        class="px-4 py-1.5 rounded-xl border border-[#e5e5ea] text-xs font-medium text-[#1c1c1e] hover:bg-[#f2f2f7]">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Assertions Modal -->
 <div x-show="showAssertionsModal"
      class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
@@ -332,17 +364,17 @@
             <div>
                 <h3 class="font-bold text-sm text-[#1c1c1e]">Response Assertions</h3>
                 <p class="text-[11px] text-[#8e8e93] mt-0.5">Define checks to run on each response. Assertions run
-                    automatically after each request.</p>
+                    automatically after each request and are saved to your account.</p>
             </div>
             <button @click="showAssertionsModal = false" class="text-[#8e8e93] hover:text-[#1c1c1e] text-sm">✕</button>
         </div>
 
         <div class="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
-            <div class="mt-4">
+            <div>
                 <label class="flex items-center justify-between">
                     <span class="text-[11px] font-medium text-[#8e8e93]">Enable Assertions</span>
                     <input type="checkbox" x-model="assertionsEnabled"
-                           class="h-4 w-4 text-[#007aff] focus:ring-[007aff] border-gray-300 rounded">
+                           class="h-4 w-4 text-[#007aff] focus:ring-[#007aff] border-gray-300 rounded">
                 </label>
                 <p class="text-[10px] text-[#8e8e93] mt-1">When disabled, assertions will not run automatically or
                     manually.</p>
@@ -398,7 +430,7 @@
                             <div>
                                 <label class="text-[10px] text-[#8e8e93] block mb-0.5">Path / Key</label>
                                 <input type="text" x-model="assertion.path"
-                                       :placeholder="assertion.type === 'json_path' ? '$.data.token' : assertion.type === 'header' ? 'Content-Type' : 'regex pattern'"
+                                       :placeholder="assertion.type === 'json_path' ? 'data.token' : assertion.type === 'header' ? 'Content-Type' : 'regex pattern'"
                                        class="w-full h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px] font-mono">
                             </div>
                         </template>
@@ -455,9 +487,9 @@
                                         <span class="text-[10px] opacity-75" x-text="result.detail"></span>
                                     </span>
                                 <span>
-                                        <span x-show="result.pass">✓ Pass</span>
-                                        <span x-show="!result.pass && !result.skipped">✗ Fail</span>
-                                        <span x-show="result.skipped">- Skipped</span>
+                                        <span x-show="result.pass">✅ Pass</span>
+                                        <span x-show="!result.pass && !result.skipped">❌ Fail</span>
+                                        <span x-show="result.skipped">⏭️ Skipped</span>
                                     </span>
                             </div>
                         </template>
@@ -479,6 +511,7 @@
     </div>
 </div>
 
+<!-- Import cURL Modal -->
 <div x-show="showCurlModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
      x-cloak>
     <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-lg p-5 space-y-4"
@@ -505,13 +538,14 @@
     </div>
 </div>
 
+<!-- Environment Drawer -->
 <div x-show="showEnvDrawer" class="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 flex justify-end" x-cloak>
     <div class="bg-white w-96 h-full shadow-2xl border-l border-[#e5e5ea] p-5 flex flex-col space-y-4"
          @click.away="showEnvDrawer = false">
         <div class="flex justify-between items-center border-b border-[#e5e5ea] pb-3">
             <h3 class="font-bold text-sm text-[#1c1c1e]">
                 Environment Variables
-                <span class="font-normal text-[#8e8e93]" x-show="activeEnvName" x-text="'→ ' + activeEnvName"></span>
+                <span class="font-normal text-[#8e8e93]" x-show="activeEnvName" x-text="'— ' + activeEnvName"></span>
             </h3>
             <button @click="showEnvDrawer = false" class="text-[#8e8e93] hover:text-[#1c1c1e] text-sm">✕</button>
         </div>
@@ -530,7 +564,8 @@
         <template x-if="activeEnvId">
             <div class="flex-1 flex flex-col space-y-4 min-h-0">
                 <p class="text-xs text-[#8e8e93]">Define variables here to use mustache syntax in your URL, headers, or
-                    body (e.g. <span class="font-mono font-semibold text-[#007aff]">{{baseUrl}}</span>). Saved directly
+                    body (e.g. <span class="font-mono font-semibold text-[#007aff]">{{ baseUrl }}</span>). Saved
+                    directly
                     to this environment on the server — any request using it will pick these up immediately.</p>
 
                 <div class="flex-1 overflow-y-auto space-y-2 min-h-0">
@@ -569,6 +604,7 @@
     </div>
 </div>
 
+<!-- New Collection Modal -->
 <div x-show="showNewCollectionModal"
      class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
     <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-sm p-5 space-y-4"
@@ -601,6 +637,7 @@
     </div>
 </div>
 
+<!-- Save Request Modal -->
 <div x-show="showSaveModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
      x-cloak>
     <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-md p-5 space-y-4"
@@ -632,7 +669,7 @@
                 <label class="text-[11px] text-[#8e8e93]">Collection</label>
                 <select name="collection_id"
                         class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-xs">
-                    <option value="">✨ Create new ✨</option>
+                    <option value="">— Create new —</option>
                     {% for col in collections %}
                     <option value="{{ col.id }}">{{ col.name }}</option>
                     {% endfor %}
@@ -657,6 +694,7 @@
     </div>
 </div>
 
+<!-- Save Environment As Modal -->
 <div x-show="showSaveEnvAsModal"
      class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
     <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-sm p-5 space-y-4"
@@ -692,6 +730,7 @@
     </div>
 </div>
 
+<!-- Toast Notification -->
 <div x-show="globalToast" x-transition
      class="fixed bottom-4 left-4 bg-[#1c1c1e] text-white text-xs px-3 py-2 rounded-lg shadow-lg z-50"
      x-text="globalToast"></div>
@@ -705,7 +744,8 @@
             <div>
                 <h3 class="font-bold text-sm text-[#1c1c1e]">New Flow</h3>
                 <p class="text-[11px] text-[#8e8e93] mt-0.5">Chain saved requests together — e.g. Login → Get Profile →
-                    Update Settings. Each step can pull a value out of its response for the next step to use.</p>
+                    Update Settings. Each step can pull multiple values out of its response for the next step to
+                    use.</p>
             </div>
             <button @click="showFlowBuilder = false" class="text-[#8e8e93] hover:text-[#1c1c1e] text-sm">✕</button>
         </div>
@@ -727,36 +767,71 @@
                                     class="text-[#8e8e93] hover:text-rose-500 text-xs">✕
                             </button>
                         </div>
-                        <select x-model="step.saved_request_id"
-                                class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-xs">
-                            <option value="">→ Select a saved request →</option>
-                            {% for col in collections %}
-                            <optgroup label="{{ col.name }}">
-                                {% for req in col.requests.all %}
-                                <option value="{{ req.id }}">{{ req.method }} {{ req.name }}</option>
-                                {% endfor %}
-                            </optgroup>
-                            {% endfor %}
-                        </select>
 
-                        <div class="flex items-center space-x-2">
-                            <select x-model="step.extract_type"
-                                    class="h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-[11px]">
-                                <option value="none">Don't extract anything</option>
-                                <option value="json">Extract JSON path</option>
-                                <option value="html">Extract via CSS selector</option>
-                            </select>
-                            <input type="text" x-show="step.extract_type !== 'none'" x-model="step.extract_path"
-                                   :placeholder="step.extract_type === 'json' ? 'data.token' : 'input[name=csrf]::attr(value)'"
-                                   class="flex-1 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 font-mono text-[11px]">
-                            <input type="text" x-show="step.extract_type !== 'none'" x-model="step.extract_var_name"
-                                   placeholder="varName"
-                                   class="w-28 h-7 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 font-mono text-[11px]">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="space-y-1">
+                                <label class="text-[10px] text-[#8e8e93]">Collection</label>
+                                <select x-model="step.collection_id" @change="step.saved_request_id = ''"
+                                        class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-xs">
+                                    <option value="">— Select a collection —</option>
+                                    <template x-for="col in collectionsData" :key="col.id">
+                                        <option :value="String(col.id)" x-text="col.name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div class="space-y-1">
+                                <label class="text-[10px] text-[#8e8e93]">Saved request</label>
+                                <select x-model="step.saved_request_id" :disabled="!step.collection_id"
+                                        class="w-full h-8 bg-[#f2f2f7] border border-[#e5e5ea] rounded-lg px-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <option value="">— Select a request —</option>
+                                    <template x-for="req in requestsForCollection(step.collection_id)" :key="req.id">
+                                        <option :value="String(req.id)" x-text="req.method + ' ' + req.name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Multiple Extractions -->
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between">
+                                <label class="text-[10px] text-[#8e8e93] font-medium">Extract values from
+                                    response</label>
+                                <button type="button" @click="addExtraction(idx)"
+                                        class="text-[10px] text-[#007aff] hover:underline font-medium">
+                                    + Add extraction
+                                </button>
+                            </div>
+
+                            <template x-for="(extract, eIdx) in step.extractions" :key="eIdx">
+                                <div class="flex items-center space-x-2 bg-[#f9f9fb] rounded-lg p-2">
+                                    <div class="flex-1 grid grid-cols-3 gap-2">
+                                        <select x-model="extract.type"
+                                                class="h-7 bg-white border border-[#e5e5ea] rounded-lg px-2 text-[11px]">
+                                            <option value="json">JSON Path</option>
+                                            <option value="html">CSS Selector</option>
+                                        </select>
+                                        <input type="text" x-model="extract.path"
+                                               :placeholder="extract.type === 'json' ? 'data.token' : 'input[name=csrf]::attr(value)'"
+                                               class="h-7 bg-white border border-[#e5e5ea] rounded-lg px-2 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                                        <input type="text" x-model="extract.var_name"
+                                               placeholder="varName"
+                                               class="h-7 bg-white border border-[#e5e5ea] rounded-lg px-2 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-[#007aff]">
+                                    </div>
+                                    <button type="button" @click="removeExtraction(idx, eIdx)"
+                                            class="text-[#8e8e93] hover:text-rose-500 text-xs px-1">✕
+                                    </button>
+                                </div>
+                            </template>
+
+                            <div x-show="!step.extractions || step.extractions.length === 0"
+                                 class="text-[10px] text-[#8e8e93] italic px-2">
+                                No extractions configured for this step
+                            </div>
                         </div>
                     </div>
                 </template>
 
-                <button @click="flowBuilderSteps.push({saved_request_id: '', extract_type: 'none', extract_path: '', extract_var_name: ''})"
+                <button @click="addStep()"
                         class="text-xs text-[#007aff] font-medium hover:underline">+ Add Step
                 </button>
             </div>
@@ -768,85 +843,157 @@
                 Cancel
             </button>
             <button type="button" @click="createFlow()"
-                    class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm">
-                Create Flow
-            </button>
+        class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm">
+    <span x-text="editingFlowId ? 'Save Changes' : 'Create Flow'"></span>
+</button>
         </div>
     </div>
 </div>
 
-<!-- Flow Diagram / Run Modal -->
+<!-- Flow Runner Modal -->
 <div x-show="showFlowRunner"
      class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" x-cloak>
-    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-4xl max-h-[85vh] flex flex-col"
+    <div class="bg-white rounded-2xl shadow-2xl border border-[#e5e5ea] w-full max-w-6xl max-h-[90vh] flex flex-col"
          @click.away="showFlowRunner = false" x-show="currentFlow">
         <div class="flex justify-between items-center border-b border-[#e5e5ea] p-5 pb-3 shrink-0">
-            <h3 class="font-bold text-sm text-[#1c1c1e]" x-text="currentFlow ? currentFlow.name : ''"></h3>
+            <div class="flex items-center space-x-4">
+                <h3 class="font-bold text-sm text-[#1c1c1e]" x-text="currentFlow ? currentFlow.name : ''"></h3>
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#e5e5ea] text-[#8e8e93] font-medium"
+                      x-text="currentFlow ? currentFlow.steps.length + ' steps' : ''"></span>
+            </div>
             <div class="flex items-center space-x-2">
+                <button @click="editCurrentFlow()"
+                        class="px-3 py-1.5 rounded-xl border border-[#e5e5ea] text-xs font-medium text-[#1c1c1e] hover:bg-[#f2f2f7] flex items-center space-x-1">
+                    <span>✏️</span>
+                    <span>Edit Flow</span>
+                </button>
                 <button @click="runFlow()" :disabled="flowRunning"
                         class="px-4 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0062cc] text-xs font-medium text-white shadow-sm disabled:opacity-50 flex items-center space-x-1.5">
                     <span x-show="!flowRunning">▶ Run Flow</span>
-                    <span x-show="flowRunning">Running...</span>
+                    <span x-show="flowRunning">⏳ Running...</span>
                 </button>
                 <button @click="showFlowRunner = false" class="text-[#8e8e93] hover:text-[#1c1c1e] text-sm">✕</button>
             </div>
         </div>
 
-        <div class="p-6 overflow-x-auto overflow-y-auto flex-1 min-h-0">
-            <div class="flex items-stretch space-x-1" x-show="currentFlow">
-                <template x-for="(step, idx) in (currentFlow ? currentFlow.steps : [])" :key="step.id">
-                    <div class="flex items-stretch">
-                        <div class="w-52 shrink-0 border rounded-xl p-3 space-y-1.5"
-                             :class="stepResult(idx) ? resultBorderClass(stepResult(idx)) : 'border-[#e5e5ea]'">
-                            <div class="flex items-center justify-between">
-                                    <span class="font-mono text-[9px] font-bold px-1 py-0.2 rounded text-white"
+        <div class="flex-1 overflow-hidden flex flex-col min-h-0">
+            <!-- Flow Diagram -->
+            <div class="p-6 overflow-x-auto overflow-y-auto flex-1 min-h-0">
+                <div class="flex items-stretch space-x-1 min-w-max" x-show="currentFlow">
+                    <template x-for="(step, idx) in (currentFlow ? currentFlow.steps : [])" :key="step.id">
+                        <div class="flex items-stretch">
+                            <!-- Step Card -->
+                            <div class="w-64 shrink-0 border rounded-xl p-3 space-y-1.5 transition-all duration-200"
+                                 :class="stepResult(idx) ? resultBorderClass(stepResult(idx)) : 'border-[#e5e5ea]'">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-mono text-[9px] font-bold px-1.5 py-0.5 rounded text-white"
                                           :class="methodColor(step.method)" x-text="step.method"></span>
-                                <span class="text-[9px] text-[#8e8e93]" x-text="'Step ' + (idx + 1)"></span>
-                            </div>
-                            <div class="text-xs font-medium text-[#1c1c1e] truncate" x-text="step.name"></div>
-                            <div class="text-[10px] text-[#8e8e93] truncate font-mono" x-text="step.url"></div>
+                                    <span class="text-[9px] text-[#8e8e93] font-medium" x-text="'Step ' + (idx + 1) + '/' + currentFlow.steps.length"></span>
+                                </div>
+                                <div class="text-xs font-medium text-[#1c1c1e] truncate" x-text="step.name"></div>
+                                <div class="text-[10px] text-[#8e8e93] truncate font-mono" x-text="step.url"></div>
 
-                            <template x-if="stepResult(idx)">
-                                <div class="pt-1 border-t border-[#f2f2f2] space-y-0.5">
-                                    <div class="flex items-center justify-between text-[10px]">
-                                        <span class="font-mono font-bold" :class="resultTextClass(stepResult(idx))"
-                                              x-text="stepResult(idx).status_code"></span>
-                                        <span class="text-[#8e8e93] font-mono"
-                                              x-text="stepResult(idx).elapsed_ms + 'ms'"></span>
+                                <!-- Extractions info -->
+                                <div x-show="step.extractions && step.extractions.length" class="pt-1 border-t border-[#f2f2f2]">
+                                    <div class="text-[9px] font-medium text-[#8e8e93] uppercase tracking-wide mb-0.5">Extracts:</div>
+                                    <div class="space-y-0.5">
+                                        <template x-for="extract in step.extractions" :key="extract.var_name">
+                                            <div class="text-[9px] font-mono flex items-center justify-between">
+                                                <span class="text-[#007aff]" x-text="extract.var_name"></span>
+                                                <span class="text-[#8e8e93] text-[8px]" x-text="extract.path"></span>
+                                            </div>
+                                        </template>
                                     </div>
-                                    <div x-show="stepResult(idx).extracted_error" class="text-[9px] text-rose-500"
-                                         x-text="stepResult(idx).extracted_error"></div>
+                                </div>
+
+                                <!-- Results display -->
+                                <template x-if="stepResult(idx)">
+                                    <div class="pt-1 border-t border-[#f2f2f2] space-y-1">
+                                        <div class="flex items-center justify-between text-[10px]">
+                                            <span class="font-mono font-bold" :class="resultTextClass(stepResult(idx))"
+                                                  x-text="stepResult(idx).status_code"></span>
+                                            <span class="text-[#8e8e93] font-mono"
+                                                  x-text="stepResult(idx).elapsed_ms + 'ms'"></span>
+                                        </div>
+
+                                        <!-- Show extracted values -->
+                                        <div x-show="stepResult(idx).extracted_values && Object.keys(stepResult(idx).extracted_values).length"
+                                             class="space-y-0.5">
+                                            <div class="text-[8px] font-medium text-[#8e8e93] uppercase tracking-wide">Extracted:</div>
+                                            <template x-for="(val, key) in stepResult(idx).extracted_values" :key="key">
+                                                <div class="text-[9px] font-mono flex items-center justify-between bg-[#f9f9fb] rounded px-1.5 py-0.5">
+                                                    <span class="text-[#007aff] font-semibold" x-text="key"></span>
+                                                    <span class="text-[#3a3a3c] truncate max-w-[120px]" x-text="String(val)"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+
+                                        <div x-show="stepResult(idx).extracted_errors && stepResult(idx).extracted_errors.length"
+                                             class="text-[9px] text-rose-500 font-mono"
+                                             x-text="stepResult(idx).extracted_errors.join(', ')"></div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <!-- Arrow with variables -->
+                            <template x-if="idx < (currentFlow.steps.length - 1)">
+                                <div class="flex flex-col items-center justify-center w-24 shrink-0 px-1">
+                                    <div class="relative w-full">
+                                        <div class="flex flex-col items-center">
+                                            <span class="text-[#c7c7cc] text-lg">→</span>
+
+                                            <!-- Show variables passed to next step -->
+                                            <div x-show="getVariablesPassed(idx)"
+                                                 class="mt-1 bg-[#f2f2f7] rounded-lg px-2 py-1 max-w-[90px] border border-[#e5e5ea]">
+                                                <div class="text-[8px] font-medium text-[#8e8e93] uppercase tracking-wide text-center">Passed</div>
+                                                <template x-for="(val, key) in getVariablesPassed(idx)" :key="key">
+                                                    <div class="text-[8px] font-mono flex items-center justify-between gap-1">
+                                                        <span class="text-[#007aff] font-semibold" x-text="key"></span>
+                                                        <span class="text-[#3a3a3c] truncate max-w-[50px]" x-text="String(val).substring(0, 20) + (String(val).length > 20 ? '...' : '')"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </template>
                         </div>
+                    </template>
+                </div>
 
-                        <template x-if="idx < (currentFlow.steps.length - 1)">
-                            <div class="flex flex-col items-center justify-center w-16 shrink-0 px-1">
-                                <span class="text-[#c7c7cc] text-lg">→</span>
-                                <span x-show="step.extract_var_name"
-                                      class="text-[9px] font-mono text-[#007aff] text-center leading-tight"
-                                      x-text="step.extract_var_name"></span>
-                            </div>
-                        </template>
+                <!-- Final Variables -->
+                <template x-if="flowFinalVars && Object.keys(flowFinalVars).length">
+                    <div class="mt-6 pt-4 border-t border-[#e5e5ea]">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wide">All Variables After This Run</div>
+                            <button @click="copyVariablesToEnv()"
+                                    class="text-[10px] text-[#007aff] hover:underline font-medium">
+                                📋 Copy to Environment
+                            </button>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="(val, key) in flowFinalVars" :key="key">
+                                <div class="text-[10px] font-mono px-2.5 py-1.5 rounded-lg bg-[#f2f2f7] text-[#1c1c1e] border border-[#e5e5ea] flex items-center space-x-2">
+                                    <span class="text-[#007aff] font-semibold" x-text="key"></span>
+                                    <span class="text-[#8e8e93]">=</span>
+                                    <span class="truncate max-w-[200px]" x-text="String(val)"></span>
+                                    <button @click="copyToClipboard(val)"
+                                            class="text-[#8e8e93] hover:text-[#007aff] text-[10px]">📋</button>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Empty state -->
+                <template x-if="!flowFinalVars && !flowResults.length">
+                    <div class="flex flex-col items-center justify-center h-full text-center space-y-2">
+                        <div class="text-4xl">🚀</div>
+                        <div class="text-xs text-[#8e8e93]">Click "Run Flow" to execute the chain</div>
+                        <div class="text-[10px] text-[#8e8e93]">Each step will show its extracted values in the card</div>
                     </div>
                 </template>
             </div>
-
-            <template x-if="flowFinalVars && Object.keys(flowFinalVars).length">
-                <div class="mt-6 pt-4 border-t border-[#e5e5ea]">
-                    <div class="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wide mb-2">Variables after this
-                        run
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                        <template x-for="(val, key) in flowFinalVars" :key="key">
-                                <span class="text-[10px] font-mono px-2 py-1 rounded-lg bg-[#f2f2f7] text-[#1c1c1e]">
-                                    <span class="text-[#007aff] font-semibold" x-text="key"></span>=<span
-                                        x-text="val"></span>
-                                </span>
-                        </template>
-                    </div>
-                </div>
-            </template>
         </div>
     </div>
 </div>
@@ -863,612 +1010,680 @@
         return null;
     }
 
-    function relayApp() {
-        return {
-            // Request data
-            method: 'GET',
-            url: '{{baseUrl}}/posts/1',
-            activeTab: 'headers',
-            authType: 'none',
-            bearerToken: '',
-            basicUsername: '',
-            basicPassword: '',
-            apiKeyName: '',
-            apiKeyValue: '',
-            requestBody: '',
-            headers: [{key: 'Accept', val: 'application/json'}],
-            currentSavedRequestId: '',
-            configCollapsed: false,
+   function relayApp() {
+    return {
+        // Request data
+        method: 'GET',
+        url: '{{ baseUrl }}/posts/1',
+        activeTab: 'headers',
+        authType: 'none',
+        bearerToken: '',
+        basicUsername: '',
+        basicPassword: '',
+        apiKeyName: '',
+        apiKeyValue: '',
+        requestBody: '',
+        headers: [{key: 'Accept', val: 'application/json'}],
+        currentSavedRequestId: '',
+        configCollapsed: false,
 
-            // Modals
-            showCurlModal: false,
-            rawCurlInput: '',
-            showEnvDrawer: false,
-            showNewCollectionModal: false,
-            showSaveModal: false,
-            showAssertionsModal: false,
-            showSaveEnvAsModal: false,
-            showFlowBuilder: false,
-            showFlowRunner: false,
+        // Modals
+        showCurlModal: false,
+        rawCurlInput: '',
+        showEnvDrawer: false,
+        showNewCollectionModal: false,
+        showSaveModal: false,
+        showAssertionsModal: false,
+        showSaveEnvAsModal: false,
+        showFlowBuilder: false,
+        showFlowRunner: false,
+        showEditModal: false,
 
-            // Environment
-            activeEnvId: '',
-            environmentsList: [],
-            envVars: [],
-            activeEnvName: '',
-            newEnvName: '',
-            newEnvCollectionId: '',
+        // Edit Request
+        editingRequestId: '',
+        editRequestName: '',
 
-            // Flows
-            flowBuilderName: '',
-            flowBuilderSteps: [],
-            currentFlow: null,
-            flowRunning: false,
-            flowResults: [],
-            flowFinalVars: null,
+        // Environment
+        activeEnvId: '',
+        environmentsList: [],
+        envVars: [],
+        activeEnvName: '',
+        newEnvName: '',
+        newEnvCollectionId: '',
 
-            // Assertions
-            assertions: [],
-            lastAssertionResults: [],
-            assertionResults: [],
-            assertionsEnabled: true,
+        // Flows
+        collectionsData: [],
+        flowBuilderName: '',
+        flowBuilderSteps: [],
+        currentFlow: null,
+        flowRunning: false,
+        flowResults: [],
+        flowFinalVars: null,
+        flowStepVariables: {},
 
-            // Toast
-            globalToast: '',
+        // Assertions
+        assertions: [],
+        lastAssertionResults: [],
+        assertionResults: [],
+        assertionsEnabled: true,
+        editingFlowId: '',
 
-            init() {
-                // Load environments
-                const envData = document.getElementById('environments-data');
-                if (envData) {
-                    try {
-                        this.environmentsList = JSON.parse(envData.textContent);
-                    } catch (e) {
-                        this.environmentsList = [];
-                    }
-                }
+        // Toast
+        globalToast: '',
 
-                // Load assertions
-                const assertionsData = document.getElementById('assertions-data');
-                if (assertionsData) {
-                    try {
-                        this.assertions = JSON.parse(assertionsData.textContent);
-                    } catch (e) {
-                        this.assertions = [
-                            {type: 'status', operator: 'equals', expected: '200', path: '', message: 'Status should be 200'},
-                            {type: 'response_time', operator: 'less_than', expected: '500', path: '', message: 'Response time < 500ms'},
-                        ];
-                    }
-                } else {
-                    this.assertions = [
-                        {type: 'status', operator: 'equals', expected: '200', path: '', message: 'Status should be 200'},
-                        {type: 'response_time', operator: 'less_than', expected: '500', path: '', message: 'Response time < 500ms'},
-                    ];
-                }
-            },
-
-            addHeader() {
-                this.headers.push({key: '', val: ''})
-            },
-            removeHeader(i) {
-                this.headers.splice(i, 1)
-            },
-
-            // ---- Assertions ----
-            addAssertion() {
-                this.assertions.push({
-                    type: 'status',
-                    operator: 'equals',
-                    expected: '200',
+        init() {
+            this.environmentsList = this._loadJsonScript('environments-data', []);
+            this.collectionsData = this._loadJsonScript('collections-data', []);
+            this.assertions = this._loadJsonScript('assertions-data', [
+                {type: 'status', operator: 'equals', expected: '200', path: '', message: 'Status should be 200'},
+                {
+                    type: 'response_time',
+                    operator: 'less_than',
+                    expected: '500',
                     path: '',
-                    message: ''
-                });
-            },
+                    message: 'Response time < 500ms'
+                },
+            ]);
+        },
 
-            async saveAssertions() {
-                try {
-                    const response = await fetch('/api/save_assertions/', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': getCookie('csrftoken'),
-                        },
-                        body: JSON.stringify({assertions: this.assertions}),
-                    });
-                    const data = await response.json();
-                    if (data.ok) {
-                        this.showToastGlobal('Assertions saved successfully');
-                        this.showAssertionsModal = false;
-                    } else {
-                        this.showToastGlobal('Failed to save assertions: ' + (data.error || 'Unknown error'));
-                    }
-                } catch (error) {
-                    this.showToastGlobal('Error saving assertions: ' + error.message);
-                }
-            },
-
-            async runAssertions() {
-                if (!this.assertionsEnabled) {
-                    return;
-                }
-                this.lastAssertionResults = [];
-
-                const responseData = this.getCurrentResponseData();
-
-                if (!responseData) {
-                    this.showToastGlobal('No response data to assert against');
-                    return;
-                }
-
-                // Log what we're asserting against
-                console.log('Running assertions against:', responseData);
-
-                try {
-                    const response = await fetch('/api/run_assertions/', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': getCookie('csrftoken'),
-                        },
-                        body: JSON.stringify({
-                            assertions: this.assertions,
-                            response_data: responseData
-                        }),
-                    });
-                    const data = await response.json();
-                    console.log('Assertion results:', data);
-
-                    if (data.results) {
-                        this.lastAssertionResults = data.results;
-                        this.assertionResults = data.results;
-                        this.dispatchAssertionResults(data.results);
-                    } else if (data.error) {
-                        this.showToastGlobal('Error running assertions: ' + data.error);
-                    }
-                } catch (error) {
-                    console.error('Error running assertions:', error);
-                    this.showToastGlobal('Error running assertions: ' + error.message);
-                }
-            },
-
-            getCurrentResponseData() {
-                const responseContainer = document.getElementById('response-container');
-                if (!responseContainer) return null;
-
-                try {
-                    // Get status code from data attribute
-                    let status_code = 0;
-                    const statusBadge = responseContainer.querySelector('.status-badge');
-                    if (statusBadge) {
-                        const codeAttr = statusBadge.getAttribute('data-status-code');
-                        if (codeAttr) {
-                            status_code = parseInt(codeAttr);
-                        }
-                    }
-
-                    // Get response time from data attribute
-                    let elapsed_ms = 0;
-                    const timeEl = responseContainer.querySelector('.response-time');
-                    if (timeEl) {
-                        const timeAttr = timeEl.getAttribute('data-elapsed-ms');
-                        if (timeAttr) {
-                            elapsed_ms = parseInt(timeAttr);
-                        }
-                    }
-
-                    // Fallback to text search if data attributes not found
-                    if (status_code === 0) {
-                        const statusMatch = responseContainer.textContent.match(/Status:\s*(\d+)/);
-                        if (statusMatch) {
-                            status_code = parseInt(statusMatch[1]);
-                        }
-                    }
-                    if (elapsed_ms === 0) {
-                        const timeMatch = responseContainer.textContent.match(/(\d+)\s*ms/);
-                        if (timeMatch) {
-                            elapsed_ms = parseInt(timeMatch[1]);
-                        }
-                    }
-
-                    // Extract body
-                    const bodyElement = responseContainer.querySelector('#response-body-code');
-                    const body = bodyElement ? bodyElement.textContent : '';
-
-                    // Extract headers
-                    const headers = {};
-                    const headerRows = responseContainer.querySelectorAll('.header-row');
-                    headerRows.forEach(row => {
-                        const keyEl = row.querySelector('.header-key');
-                        const valEl = row.querySelector('.header-value');
-                        if (keyEl && valEl) {
-                            const key = keyEl.textContent.replace(':', '').trim();
-                            const val = valEl.textContent.trim();
-                            headers[key] = val;
-                        }
-                    });
-
-                    console.log('Extracted response data:', {status_code, elapsed_ms});
-
-                    return {
-                        status_code: status_code,
-                        elapsed_ms: elapsed_ms,
-                        body: body,
-                        headers: headers,
-                    };
-                } catch (e) {
-                    console.warn('Error extracting response data:', e);
-                    return null;
-                }
-            },
-
-            dispatchAssertionResults(results) {
-                const event = new CustomEvent('assertion-results-updated', {
-                    detail: {results: results}
-                });
-                document.dispatchEvent(event);
-
-                const hasFailures = results.some(r => !r.pass && !r.skipped);
-                const indicator = document.querySelector('[x-show="assertions.length > 0"]');
-                if (indicator) {
-                    if (hasFailures) {
-                        indicator.className = 'w-2 h-2 rounded-full bg-rose-500';
-                    } else if (results.every(r => r.pass)) {
-                        indicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
-                    } else {
-                        indicator.className = 'w-2 h-2 rounded-full bg-amber-500';
-                    }
-                }
-
-                const total = results.length;
-                const passed = results.filter(r => r.pass).length;
-                const failed = results.filter(r => !r.pass && !r.skipped).length;
-                if (failed > 0) {
-                    this.showToastGlobal(`❌ Assertions: ${passed}/${total} passed, ${failed} failed`);
-                } else if (passed === total && total > 0) {
-                    this.showToastGlobal(`✅ All ${total} assertions passed!`);
-                }
-            },
-
-            // ---- Environment ----
-            async fetchActiveEnvVars() {
-                if (!this.activeEnvId) {
-                    this.envVars = [];
-                    this.activeEnvName = '';
-                    return;
-                }
-                try {
-                    const res = await fetch(`/api/environments/${this.activeEnvId}/`);
-                    if (!res.ok) {
-                        this.envVars = [];
-                        this.activeEnvName = '';
-                        return;
-                    }
-                    const data = await res.json();
-                    this.envVars = Object.entries(data.vars || {}).map(([key, val]) => ({key, val: String(val)}));
-                    this.activeEnvName = data.name;
-                } catch (e) {
-                    console.warn('Error fetching env vars:', e);
-                }
-            },
-
-            addEnvVar() {
-                this.envVars.push({key: '', val: ''})
-            },
-
-            removeEnvVar(i) {
-                this.envVars.splice(i, 1)
-            },
-
-            getEnvMap() {
-                let map = {};
-                this.envVars.forEach(e => {
-                    if (e.key.trim()) map[e.key.trim()] = e.val;
-                });
-                return map;
-            },
-
-            async saveEnvVars() {
-                if (!this.activeEnvId) {
-                    this.showToastGlobal('Select or create an environment first');
-                    return;
-                }
-                try {
-                    const body = new URLSearchParams();
-                    body.append('vars_json', JSON.stringify(this.getEnvMap()));
-                    const res = await fetch(`/api/environments/${this.activeEnvId}/update/`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-CSRFToken': getCookie('csrftoken')
-                        },
-                        body: body.toString(),
-                    });
-                    if (res.ok) {
-                        this.showEnvDrawer = false;
-                        this.showToastGlobal('Environment saved');
-                    } else {
-                        this.showToastGlobal('Failed to save environment');
-                    }
-                } catch (e) {
-                    this.showToastGlobal('Error saving environment');
-                }
-            },
-
-            async deleteActiveEnvironment() {
-                if (!this.activeEnvId) return;
-                if (!confirm(`Delete environment "${this.activeEnvName}"? This can't be undone.`)) return;
-                try {
-                    await fetch(`/api/environments/${this.activeEnvId}/delete/`, {
-                        method: 'POST',
-                        headers: {'X-CSRFToken': getCookie('csrftoken')},
-                    });
-                    this.activeEnvId = '';
-                    this.envVars = [];
-                    this.activeEnvName = '';
-                    this.showEnvDrawer = false;
-                    await this.refreshEnvironmentsList();
-                    this.showToastGlobal('Environment deleted');
-                } catch (e) {
-                    this.showToastGlobal('Error deleting environment');
-                }
-            },
-
-            async refreshEnvironmentsList() {
-                try {
-                    const res = await fetch('{% url "list_environments_api" %}');
-                    const data = await res.json();
-                    this.environmentsList = (data.environments || []).map(e => ({
-                        id: e.id,
-                        name: e.name,
-                        collection_id: e.collection_id
-                    }));
-                } catch (e) {
-                    console.warn('Error refreshing environments:', e);
-                }
-            },
-
-            showToastGlobal(msg) {
-                this.globalToast = msg;
-                setTimeout(() => {
-                    this.globalToast = '';
-                }, 3000);
-            },
-
-            async saveEnvironmentAs() {
-                if (!this.newEnvName.trim()) return;
-                try {
-                    const body = new URLSearchParams();
-                    body.append('name', this.newEnvName.trim());
-                    body.append('collection_id', this.newEnvCollectionId);
-                    body.append('vars_json', JSON.stringify(this.getEnvMap()));
-
-                    const res = await fetch('{% url "save_environment_api" %}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-CSRFToken': getCookie('csrftoken'),
-                        },
-                        body: body.toString(),
-                    });
-                    const data = await res.json();
-                    if (data.ok) {
-                        this.showSaveEnvAsModal = false;
-                        this.newEnvName = '';
-                        this.newEnvCollectionId = '';
-                        await this.refreshEnvironmentsList();
-                        this.activeEnvId = String(data.id);
-                        await this.fetchActiveEnvVars();
-                        this.showToastGlobal('Environment saved');
-                    } else {
-                        this.showToastGlobal(data.error || 'Failed to save environment');
-                    }
-                } catch (e) {
-                    this.showToastGlobal('Error saving environment');
-                }
-            },
-
-            // ---- Flows ----
-            openFlowBuilder() {
-                this.flowBuilderName = '';
-                this.flowBuilderSteps = [{
-                    saved_request_id: '',
-                    extract_type: 'none',
-                    extract_path: '',
-                    extract_var_name: ''
-                }];
-                this.showFlowBuilder = true;
-            },
-
-            async createFlow() {
-                if (!this.flowBuilderName.trim()) {
-                    this.showToastGlobal('Give the flow a name');
-                    return;
-                }
-                const steps = this.flowBuilderSteps.filter(s => s.saved_request_id);
-                if (!steps.length) {
-                    this.showToastGlobal('Add at least one step');
-                    return;
-                }
-
-                try {
-                    const body = new URLSearchParams();
-                    body.append('name', this.flowBuilderName.trim());
-                    body.append('steps_json', JSON.stringify(steps));
-
-                    const res = await fetch('{% url "create_flow_api" %}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-CSRFToken': getCookie('csrftoken')
-                        },
-                        body: body.toString(),
-                    });
-                    if (res.ok) {
-                        const html = await res.text();
-                        document.getElementById('flows-list').innerHTML = html;
-                        this.showFlowBuilder = false;
-                        this.showToastGlobal('Flow created');
-                    } else {
-                        this.showToastGlobal('Failed to create flow');
-                    }
-                } catch (e) {
-                    this.showToastGlobal('Error creating flow');
-                }
-            },
-
-            async openFlow(id) {
-                try {
-                    const res = await fetch(`/api/flows/${id}/`);
-                    const data = await res.json();
-                    if (data.error) {
-                        this.showToastGlobal(data.error);
-                        return;
-                    }
-                    this.currentFlow = data;
-                    this.flowResults = [];
-                    this.flowFinalVars = null;
-                    this.showFlowRunner = true;
-                } catch (e) {
-                    this.showToastGlobal('Error loading flow');
-                }
-            },
-
-            async runFlow() {
-                if (!this.currentFlow) return;
-                this.flowRunning = true;
-                this.flowResults = [];
-                this.flowFinalVars = null;
-                try {
-                    const body = new URLSearchParams();
-                    body.append('active_env_id', this.activeEnvId);
-                    const res = await fetch(`/api/flows/${this.currentFlow.id}/run/`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-CSRFToken': getCookie('csrftoken')
-                        },
-                        body: body.toString(),
-                    });
-                    const data = await res.json();
-                    if (data.error) {
-                        this.showToastGlobal(data.error);
-                        return;
-                    }
-                    this.flowResults = data.results || [];
-                    this.flowFinalVars = data.final_vars || null;
-                    this.$dispatch('history-refresh');
-                    if (this.activeEnvId) await this.fetchActiveEnvVars();
-                } catch (e) {
-                    this.showToastGlobal('Error running flow');
-                } finally {
-                    this.flowRunning = false;
-                }
-            },
-
-            stepResult(idx) {
-                return this.flowResults[idx] || null;
-            },
-
-            methodColor(method) {
-                if (method === 'GET') return 'bg-emerald-500';
-                if (method === 'POST') return 'bg-blue-500';
-                if (method === 'PUT' || method === 'PATCH') return 'bg-amber-500';
-                return 'bg-rose-500';
-            },
-
-            resultBorderClass(r) {
-                if (r.status_category === 'success') return 'border-emerald-300';
-                if (r.status_category === 'redirect') return 'border-blue-300';
-                if (r.status_category === 'client_error') return 'border-amber-300';
-                return 'border-rose-300';
-            },
-
-            resultTextClass(r) {
-                if (r.status_category === 'success') return 'text-emerald-600';
-                if (r.status_category === 'redirect') return 'text-blue-600';
-                if (r.status_category === 'client_error') return 'text-amber-600';
-                return 'text-rose-600';
-            },
-
-            async loadSavedRequest(id) {
-                try {
-                    const res = await fetch(`/api/requests/${id}/load/`);
-                    const data = await res.json();
-                    this._applyLoadedRequest(data);
-                } catch (e) {
-                    this.showToastGlobal('Error loading request');
-                }
-            },
-
-            async loadHistoryItem(id) {
-                try {
-                    const res = await fetch(`/api/history/${id}/load/`);
-                    const data = await res.json();
-                    this._applyLoadedRequest(data);
-                } catch (e) {
-                    this.showToastGlobal('Error loading history item');
-                }
-            },
-
-            _applyLoadedRequest(data) {
-                if (data.error) return;
-                this.method = data.method;
-                this.url = data.url;
-                this.requestBody = data.body || '';
-                this.authType = data.auth_type || 'none';
-                this.bearerToken = data.bearer_token || '';
-                this.basicUsername = data.basic_username || '';
-                this.basicPassword = data.basic_password || '';
-                this.apiKeyName = data.api_key_name || '';
-                this.apiKeyValue = data.api_key_value || '';
-                this.headers = (data.headers && data.headers.length) ? data.headers : [{key: '', val: ''}];
-                this.currentSavedRequestId = data.saved_request_id || '';
-            },
-
-            prepareRequestData(event) {
-                this.assertionResults = [];
-            },
-
-            handleResponse(event) {
-                setTimeout(() => {
-                    if (this.assertions && this.assertions.length > 0 && this.assertionsEnabled) {
-                        this.runAssertions();
-                    }
-                }, 500);
-
-                this.$dispatch('history-refresh');
-            },
-
-            importCurl() {
-                if (!this.rawCurlInput.trim()) return;
-                let text = this.rawCurlInput.trim();
-
-                let methodMatch = text.match(/-X\s+([A-Z]+)/i) || text.match(/--request\s+([A-Z]+)/i);
-                if (methodMatch) this.method = methodMatch[1].toUpperCase();
-                else if (text.includes('-d ') || text.includes('--data')) this.method = 'POST';
-                else this.method = 'GET';
-
-                let urlMatch = text.match(/(https?:\/\/[^\s'"]+)/) || text.match(/'([^']*)'/) || text.match(/"([^"]*)"/);
-                if (urlMatch) this.url = urlMatch[1];
-
-                let headerRegex = /(?:-H|--header)\s+["']?([^"'\n]+)["']?/g;
-                let match;
-                let newHeaders = [];
-                while ((match = headerRegex.exec(text)) !== null) {
-                    let parts = match[1].split(':');
-                    if (parts.length >= 2) {
-                        newHeaders.push({key: parts[0].trim(), val: parts.slice(1).join(':').trim()});
-                    }
-                }
-                if (newHeaders.length) this.headers = newHeaders;
-
-                let bodyMatch = text.match(/(?:-d|--data|--data-raw)\s+["']?(\{[\s\S]*\}|[^"'\n]+)["']?/);
-                if (bodyMatch) this.requestBody = bodyMatch[1];
-
-                this.rawCurlInput = '';
-                this.showCurlModal = false;
+        _loadJsonScript(id, fallback) {
+            const el = document.getElementById(id);
+            if (!el) return fallback;
+            try {
+                return JSON.parse(el.textContent);
+            } catch (e) {
+                return fallback;
             }
+        },
+
+        addHeader() {
+            this.headers.push({key: '', val: ''})
+        },
+        removeHeader(i) {
+            this.headers.splice(i, 1)
+        },
+
+        // ---- Edit Request ----
+        async editSavedRequest(id, name) {
+            this.editingRequestId = id;
+            this.editRequestName = name;
+            this.showEditModal = true;
+        },
+
+        async saveEditedRequest() {
+            if (!this.editRequestName.trim()) {
+                this.showToastGlobal('Request name is required');
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('name', this.editRequestName.trim());
+                formData.append('request_id', this.editingRequestId);
+
+                const response = await fetch('{% url "update_request_api" %}', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                    body: formData,
+                });
+
+                if (response.ok) {
+                    this.showEditModal = false;
+                    this.showToastGlobal('Request updated successfully');
+                    // Refresh the collections list
+                    const collectionsResponse = await fetch('{% url "refresh_collections_api" %}');
+                    const html = await collectionsResponse.text();
+                    document.getElementById('collections-list').innerHTML = html;
+                } else {
+                    const data = await response.json();
+                    this.showToastGlobal(data.error || 'Failed to update request');
+                }
+            } catch (error) {
+                this.showToastGlobal('Error updating request: ' + error.message);
+            }
+        },
+
+        // ---- Flows: cascading collection -> request picker ----
+        requestsForCollection(collectionId) {
+            if (!collectionId) return [];
+            const col = this.collectionsData.find(c => String(c.id) === String(collectionId));
+            return col ? col.requests : [];
+        },
+
+        // ---- Flow Builder with multiple extractions ----
+        openFlowBuilder() {
+    this.editingFlowId = '';
+    this.flowBuilderName = '';
+    this.flowBuilderSteps = [{ collection_id: '', saved_request_id: '', extractions: [] }];
+    this.showFlowBuilder = true;
+},
+
+        addStep() {
+            this.flowBuilderSteps.push({
+                collection_id: '',
+                saved_request_id: '',
+                extractions: []
+            });
+        },
+
+
+        addExtraction(stepIdx) {
+            if (!this.flowBuilderSteps[stepIdx].extractions) {
+                this.flowBuilderSteps[stepIdx].extractions = [];
+            }
+            this.flowBuilderSteps[stepIdx].extractions.push({
+                type: 'json',
+                path: '',
+                var_name: ''
+            });
+        },
+
+        removeExtraction(stepIdx, extractIdx) {
+            this.flowBuilderSteps[stepIdx].extractions.splice(extractIdx, 1);
+        },
+
+        async createFlow() {
+    if (!this.flowBuilderName.trim()) { this.showToastGlobal('Give the flow a name'); return; }
+    const steps = this.flowBuilderSteps.filter(s => s.saved_request_id);
+    if (!steps.length) { this.showToastGlobal('Add at least one step with a saved request selected'); return; }
+
+    const body = new URLSearchParams();
+    body.append('name', this.flowBuilderName.trim());
+    body.append('steps_json', JSON.stringify(steps));
+
+    const wasEditing = !!this.editingFlowId;
+    const endpoint = wasEditing ? `/api/flows/${this.editingFlowId}/update/` : '{% url "create_flow_api" %}';
+
+    const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': getCookie('csrftoken')},
+        body: body.toString(),
+    });
+    if (res.ok) {
+        const html = await res.text();
+        document.getElementById('flows-list').innerHTML = html;
+        this.showFlowBuilder = false;
+        this.editingFlowId = '';
+        this.showToastGlobal(wasEditing ? 'Flow updated' : 'Flow created');
+    } else {
+        this.showToastGlobal('Failed to save flow');
+    }
+},
+
+        async openFlow(id) {
+            const res = await fetch(`/api/flows/${id}/`);
+            const data = await res.json();
+            if (data.error) {
+                this.showToastGlobal(data.error);
+                return;
+            }
+            this.currentFlow = data;
+            this.flowResults = [];
+            this.flowFinalVars = null;
+            this.flowStepVariables = {};
+            this.showFlowRunner = true;
+        },
+
+        // ---- Flow Runner enhancements ----
+        getVariablesPassed(idx) {
+            if (!this.flowResults || idx >= this.flowResults.length) return null;
+            const result = this.flowResults[idx];
+            if (!result.extracted_values || !Object.keys(result.extracted_values).length) return null;
+            return result.extracted_values;
+        },
+
+        editCurrentFlow() {
+    if (!this.currentFlow) return;
+    this.editingFlowId = this.currentFlow.id;
+    this.flowBuilderName = this.currentFlow.name;
+    this.flowBuilderSteps = this.currentFlow.steps.map(step => ({
+        collection_id: step.collection_id || '',
+        saved_request_id: step.saved_request_id || '',
+        extractions: step.extractions || []
+    }));
+    this.showFlowRunner = false;
+    this.showFlowBuilder = true;
+},
+
+        copyVariablesToEnv() {
+            if (!this.flowFinalVars || !this.activeEnvId) {
+                this.showToastGlobal('No variables to copy or no environment selected');
+                return;
+            }
+
+            // Add all flow variables to the current environment
+            const currentVars = this.getEnvMap();
+            Object.entries(this.flowFinalVars).forEach(([key, val]) => {
+                currentVars[key] = String(val);
+            });
+
+            // Update the envVars array
+            this.envVars = Object.entries(currentVars).map(([key, val]) => ({key, val: String(val)}));
+            this.saveEnvVars();
+            this.showToastGlobal('Variables copied to environment');
+        },
+
+        copyToClipboard(text) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(String(text)).then(() => {
+                    this.showToastGlobal('Copied to clipboard');
+                }).catch(() => {
+                    // Fallback
+                    this.fallbackCopy(text);
+                });
+            } else {
+                this.fallbackCopy(text);
+            }
+        },
+
+        fallbackCopy(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = String(text);
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                this.showToastGlobal('Copied to clipboard');
+            } catch (err) {
+                this.showToastGlobal('Failed to copy');
+            }
+            document.body.removeChild(textarea);
+        },
+
+        async runFlow() {
+            if (!this.currentFlow) return;
+            this.flowRunning = true;
+            this.flowResults = [];
+            this.flowFinalVars = null;
+            this.flowStepVariables = {};
+            try {
+                const body = new URLSearchParams();
+                body.append('active_env_id', this.activeEnvId);
+                const res = await fetch(`/api/flows/${this.currentFlow.id}/run/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: body.toString(),
+                });
+                const data = await res.json();
+                if (data.error) {
+                    this.showToastGlobal(data.error);
+                    return;
+                }
+                this.flowResults = data.results || [];
+                this.flowFinalVars = data.final_vars || null;
+                this.$dispatch('history-refresh');
+                if (this.activeEnvId) await this.fetchActiveEnvVars();
+
+                // Show summary toast
+                const total = this.flowResults.length;
+                const success = this.flowResults.filter(r => r.status_category === 'success').length;
+                if (success === total) {
+                    this.showToastGlobal(`✅ Flow completed! All ${total} steps succeeded`);
+                } else {
+                    this.showToastGlobal(`⚠️ Flow completed with ${total - success} failures`);
+                }
+            } catch (error) {
+                this.showToastGlobal('Error running flow: ' + error.message);
+            } finally {
+                this.flowRunning = false;
+            }
+        },
+
+        stepResult(idx) {
+            return this.flowResults[idx] || null;
+        },
+
+        methodColor(method) {
+            if (method === 'GET') return 'bg-emerald-500';
+            if (method === 'POST') return 'bg-blue-500';
+            if (method === 'PUT' || method === 'PATCH') return 'bg-amber-500';
+            return 'bg-rose-500';
+        },
+
+        resultBorderClass(r) {
+            if (!r) return 'border-[#e5e5ea]';
+            if (r.status_category === 'success') return 'border-emerald-300 bg-emerald-50/30';
+            if (r.status_category === 'redirect') return 'border-blue-300 bg-blue-50/30';
+            if (r.status_category === 'client_error') return 'border-amber-300 bg-amber-50/30';
+            return 'border-rose-300 bg-rose-50/30';
+        },
+
+        resultTextClass(r) {
+            if (!r) return 'text-[#8e8e93]';
+            if (r.status_category === 'success') return 'text-emerald-600';
+            if (r.status_category === 'redirect') return 'text-blue-600';
+            if (r.status_category === 'client_error') return 'text-amber-600';
+            return 'text-rose-600';
+        },
+
+        // ---- Assertions ----
+        addAssertion() {
+            this.assertions.push({
+                type: 'status',
+                operator: 'equals',
+                expected: '200',
+                path: '',
+                message: ''
+            });
+        },
+
+        async saveAssertions() {
+            try {
+                const response = await fetch('{% url "save_assertions_api" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                    body: JSON.stringify({assertions: this.assertions}),
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    this.showToastGlobal('Assertions saved');
+                    this.showAssertionsModal = false;
+                } else {
+                    this.showToastGlobal('Failed to save assertions: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                this.showToastGlobal('Error saving assertions: ' + error.message);
+            }
+        },
+
+        getCurrentResponseData() {
+            const el = document.getElementById('response-data');
+            if (!el) return null;
+            try {
+                return JSON.parse(el.textContent);
+            } catch (e) {
+                return null;
+            }
+        },
+
+        async runAssertions() {
+            if (!this.assertionsEnabled) return;
+            this.lastAssertionResults = [];
+
+            const responseData = this.getCurrentResponseData();
+            if (!responseData) {
+                this.showToastGlobal('No response yet — send a request first');
+                return;
+            }
+
+            try {
+                const response = await fetch('{% url "run_assertions_api" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                    body: JSON.stringify({
+                        assertions: this.assertions,
+                        response_data: responseData,
+                    }),
+                });
+                const data = await response.json();
+                if (data.error) {
+                    this.showToastGlobal('Error running assertions: ' + data.error);
+                    return;
+                }
+                this.lastAssertionResults = data.results || [];
+                this.assertionResults = data.results || [];
+
+                const total = this.assertionResults.length;
+                const passed = this.assertionResults.filter(r => r.pass).length;
+                const failed = this.assertionResults.filter(r => !r.pass && !r.skipped).length;
+                if (failed > 0) {
+                    this.showToastGlobal(`${passed}/${total} assertions passed, ${failed} failed`);
+                } else if (total > 0) {
+                    this.showToastGlobal(`All ${total} assertions passed`);
+                }
+            } catch (error) {
+                this.showToastGlobal('Error running assertions: ' + error.message);
+            }
+        },
+
+        assertionBadgeColor() {
+            if (!this.assertionResults.length) return 'bg-gray-300';
+            if (this.assertionResults.some(r => r && !r.pass && !r.skipped)) return 'bg-rose-500';
+            if (this.assertionResults.every(r => r && (r.pass || r.skipped))) return 'bg-emerald-500';
+            return 'bg-amber-500';
+        },
+
+        // ---- Server-backed environment variables ----
+        async fetchActiveEnvVars() {
+            if (!this.activeEnvId) {
+                this.envVars = [];
+                this.activeEnvName = '';
+                return;
+            }
+            try {
+                const res = await fetch(`/api/environments/${this.activeEnvId}/`);
+                if (!res.ok) {
+                    this.envVars = [];
+                    this.activeEnvName = '';
+                    return;
+                }
+                const data = await res.json();
+                this.envVars = Object.entries(data.vars || {}).map(([key, val]) => ({key, val: String(val)}));
+                this.activeEnvName = data.name;
+            } catch (e) {
+                console.warn('Error fetching env vars:', e);
+            }
+        },
+
+        addEnvVar() {
+            this.envVars.push({key: '', val: ''})
+        },
+
+        removeEnvVar(i) {
+            this.envVars.splice(i, 1)
+        },
+
+        getEnvMap() {
+            let map = {};
+            this.envVars.forEach(e => {
+                if (e.key.trim()) map[e.key.trim()] = e.val;
+            });
+            return map;
+        },
+
+        async saveEnvVars() {
+            if (!this.activeEnvId) {
+                this.showToastGlobal('Select or create an environment first');
+                return;
+            }
+            const body = new URLSearchParams();
+            body.append('vars_json', JSON.stringify(this.getEnvMap()));
+            const res = await fetch(`/api/environments/${this.activeEnvId}/update/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: body.toString(),
+            });
+            if (res.ok) {
+                this.showEnvDrawer = false;
+                this.showToastGlobal('Environment saved');
+            } else {
+                this.showToastGlobal('Failed to save environment');
+            }
+        },
+
+        async deleteActiveEnvironment() {
+            if (!this.activeEnvId) return;
+            if (!confirm(`Delete environment "${this.activeEnvName}"? This can't be undone.`)) return;
+            await fetch(`/api/environments/${this.activeEnvId}/delete/`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': getCookie('csrftoken')},
+            });
+            this.activeEnvId = '';
+            this.envVars = [];
+            this.activeEnvName = '';
+            this.showEnvDrawer = false;
+            await this.refreshEnvironmentsList();
+            this.showToastGlobal('Environment deleted');
+        },
+
+        async refreshEnvironmentsList() {
+            const res = await fetch('{% url "list_environments_api" %}');
+            const data = await res.json();
+            this.environmentsList = (data.environments || []).map(e => ({
+                id: e.id,
+                name: e.name,
+                collection_id: e.collection_id
+            }));
+        },
+
+        showToastGlobal(msg) {
+            this.globalToast = msg;
+            clearTimeout(this._toastTimeout);
+            this._toastTimeout = setTimeout(() => {
+                this.globalToast = '';
+            }, 3000);
+        },
+
+        async saveEnvironmentAs() {
+            if (!this.newEnvName.trim()) return;
+            const body = new URLSearchParams();
+            body.append('name', this.newEnvName.trim());
+            body.append('collection_id', this.newEnvCollectionId);
+            body.append('vars_json', JSON.stringify(this.getEnvMap()));
+
+            const res = await fetch('{% url "save_environment_api" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: body.toString(),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                this.showSaveEnvAsModal = false;
+                this.newEnvName = '';
+                this.newEnvCollectionId = '';
+                await this.refreshEnvironmentsList();
+                this.activeEnvId = String(data.id);
+                await this.fetchActiveEnvVars();
+                this.showToastGlobal('Environment saved');
+            } else {
+                this.showToastGlobal(data.error || 'Failed to save environment');
+            }
+        },
+
+        // ---- Request Loading ----
+        async loadSavedRequest(id) {
+            const res = await fetch(`/api/requests/${id}/load/`);
+            const data = await res.json();
+            this._applyLoadedRequest(data);
+        },
+
+        async loadHistoryItem(id) {
+            const res = await fetch(`/api/history/${id}/load/`);
+            const data = await res.json();
+            this._applyLoadedRequest(data);
+        },
+
+        _applyLoadedRequest(data) {
+            if (data.error) return;
+            this.method = data.method;
+            this.url = data.url;
+            this.requestBody = data.body || '';
+            this.authType = data.auth_type || 'none';
+            this.bearerToken = data.bearer_token || '';
+            this.basicUsername = data.basic_username || '';
+            this.basicPassword = data.basic_password || '';
+            this.apiKeyName = data.api_key_name || '';
+            this.apiKeyValue = data.api_key_value || '';
+            this.headers = (data.headers && data.headers.length) ? data.headers : [{key: '', val: ''}];
+            this.currentSavedRequestId = data.saved_request_id || '';
+        },
+
+        // ---- HTMX Event Handlers ----
+        prepareRequestData(event) {
+            this.assertionResults = [];
+        },
+
+        handleResponseSwap(event) {
+            if (this.assertions.length > 0 && this.assertionsEnabled) {
+                this.runAssertions();
+            }
+        },
+
+        // ---- Import cURL ----
+        importCurl() {
+            if (!this.rawCurlInput.trim()) return;
+            let text = this.rawCurlInput.trim();
+
+            let methodMatch = text.match(/-X\s+([A-Z]+)/i) || text.match(/--request\s+([A-Z]+)/i);
+            if (methodMatch) this.method = methodMatch[1].toUpperCase();
+            else if (text.includes('-d ') || text.includes('--data')) this.method = 'POST';
+            else this.method = 'GET';
+
+            let urlMatch = text.match(/(https?:\/\/[^\s'"]+)/) || text.match(/'([^']*)'/) || text.match(/"([^"]*)"/);
+            if (urlMatch) this.url = urlMatch[1];
+
+            let headerRegex = /(?:-H|--header)\s+["']?([^"'\n]+)["']?/g;
+            let match;
+            let newHeaders = [];
+            while ((match = headerRegex.exec(text)) !== null) {
+                let parts = match[1].split(':');
+                if (parts.length >= 2) {
+                    newHeaders.push({key: parts[0].trim(), val: parts.slice(1).join(':').trim()});
+                }
+            }
+            if (newHeaders.length) this.headers = newHeaders;
+
+            let bodyMatch = text.match(/(?:-d|--data|--data-raw)\s+["']?(\{[\s\S]*\}|[^"'\n]+)["']?/);
+            if (bodyMatch) this.requestBody = bodyMatch[1];
+
+            this.rawCurlInput = '';
+            this.showCurlModal = false;
+            this.showToastGlobal('cURL imported successfully');
+        },
+
+        // ---- Import Collection ----
+        async importCollectionFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('{% url "import_collection_api" %}', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                    body: formData,
+                });
+
+                if (response.ok) {
+                    const html = await response.text();
+                    document.getElementById('collections-list').innerHTML = html;
+                    this.showToastGlobal('Collection imported successfully');
+                } else {
+                    const data = await response.json();
+                    this.showToastGlobal(data.error || 'Failed to import collection');
+                }
+            } catch (error) {
+                this.showToastGlobal('Error importing collection: ' + error.message);
+            }
+
+            // Reset the file input
+            event.target.value = '';
         }
     }
+}
 
     document.body.addEventListener('htmx:afterOnLoad', function (event) {
         if (window.Prism) {

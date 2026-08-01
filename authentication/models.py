@@ -118,17 +118,36 @@ class Flow(models.Model):
 
 
 class FlowStep(models.Model):
-    EXTRACT_CHOICES = [('none', 'None'), ('json', 'JSON path'), ('html', 'CSS selector')]
-
+    """One step in a flow = one saved request, executed once, that can
+    extract zero or more variables from its response for later steps."""
     flow = models.ForeignKey(Flow, on_delete=models.CASCADE, related_name='steps')
     saved_request = models.ForeignKey(SavedRequest, on_delete=models.CASCADE, related_name='flow_steps')
     order = models.PositiveIntegerField(default=0)
-    extract_type = models.CharField(max_length=10, choices=EXTRACT_CHOICES, default='none')
-    extract_path = models.CharField(max_length=255, blank=True)
-    extract_var_name = models.CharField(max_length=100, blank=True)
+    extractions_json = models.TextField(default='[]')  # [{"type": "json"|"html", "path": "...", "var_name": "..."}]
 
     class Meta:
         ordering = ['order', 'id']
 
+    def get_extractions(self):
+        try:
+            return json.loads(self.extractions_json)
+        except (ValueError, TypeError):
+            return []
+
+    def set_extractions(self, data):
+        self.extractions_json = json.dumps(data)
+
     def __str__(self):
         return f"{self.flow.name} step {self.order}: {self.saved_request.name}"
+class AssertionConfig(models.Model):
+    owner = models.OneToOneField(User, on_delete=models.CASCADE, related_name='assertion_config')
+    assertions_json = models.TextField(default='[]')
+
+    def get_assertions(self):
+        try:
+            return json.loads(self.assertions_json)
+        except (ValueError, TypeError):
+            return []
+
+    def set_assertions(self, data):
+        self.assertions_json = json.dumps(data)

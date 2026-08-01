@@ -21,9 +21,12 @@ from engine import (
     extract_html_tables,
     extract_html_path,
 )
-from .models import Collection, Environment, SavedRequest, RequestHistory, Flow, FlowStep
+from .models import Collection, Environment, SavedRequest, RequestHistory, Flow, FlowStep, AssertionConfig
 
-
+DEFAULT_ASSERTIONS = [
+    {"type": "status", "operator": "equals", "expected": "200", "path": "", "message": "Status should be 200"},
+    {"type": "response_time", "operator": "less_than", "expected": "500", "path": "", "message": "Response time < 500ms"},
+]
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -105,23 +108,33 @@ def workspace(request):
     flows = Flow.objects.filter(owner=request.user).prefetch_related('steps__saved_request')
     history = RequestHistory.objects.filter(owner=request.user)[:30]
 
-    # Get saved assertions from session or use defaults
-    assertions = request.session.get('relay_assertions', [
-        {'type': 'status', 'operator': 'equals', 'expected': '200', 'path': '', 'message': 'Status should be 200'},
-        {'type': 'response_time', 'operator': 'less_than', 'expected': '500', 'path': '',
-         'message': 'Response time < 500ms'},
-    ])
+    assertion_config = AssertionConfig.objects.filter(owner=request.user).first()
+    assertions = (assertion_config.get_assertions() if assertion_config else None) or DEFAULT_ASSERTIONS
 
     context = {
         "collections": collections,
+        "collections_json": [
+            {
+                "id": c.id,
+                "name": c.name,
+                "requests": [{"id": r.id, "name": r.name, "method": r.method} for r in c.requests.all()],
+            }
+            for c in collections
+        ],
         "environments": environments,
         "environments_json": [
             {"id": e.id, "name": e.name, "collection_id": e.collection_id} for e in environments
         ],
         "flows": flows,
         "history": history,
+        "assertions": assertions,
         "extracted_vars": request.session.get('relay_extracted_vars', {}),
-        "assertions": assertions,  # Add this
+        # Safe empty state for the always-rendered response panel before any request is sent
+        "response_data": None,
+        "snippets": {"curl": "", "python": "", "javascript": ""},
+        "is_json": False,
+        "is_html": False,
+        "html_tables": [],
     }
     return render(request, "workspace.html", context)
 
@@ -220,9 +233,17 @@ def send_request_api(request):
         )
 
     environments = Environment.objects.filter(owner=request.user) if request.user.is_authenticated else []
+    response_json = {
+        "status_code": response_data.get("status_code", 0),
+        "status_category": response_data.get("status_category", "server_error"),
+        "elapsed_ms": response_data.get("elapsed_ms", 0),
+        "body": raw_body,
+        "headers": response_data.get("headers", {}),
+    }
 
     return render(request, "partials/response_panel.html", {
         "res": response_data,
+        "response_json": response_json,
         "snippets": snippets,
         "is_json": is_json,
         "is_html": is_html,
@@ -389,6 +410,7 @@ def load_request_api(request, request_id):
 
 @login_required
 @require_POST
+@csrf_exempt
 def delete_request_api(request, request_id):
     SavedRequest.objects.filter(collection__owner=request.user, id=request_id).delete()
     return render(request, "partials/collections_list.html", {
@@ -647,14 +669,18 @@ def create_flow_api(request):
         sr = SavedRequest.objects.filter(collection__owner=request.user, id=s.get("saved_request_id")).first()
         if not sr:
             continue
-        FlowStep.objects.create(
-            flow=flow,
-            order=i,
-            saved_request=sr,
-            extract_type=s.get("extract_type", "none"),
-            extract_path=s.get("extract_path", ""),
-            extract_var_name=s.get("extract_var_name", ""),
-        )
+        extractions = [
+            {"type": e.get("type", "json"), "path": e.get("path", "").strip(), "var_name": e.get("var_name", "").strip()}
+            for e in s.get("extractions", [])
+            if e.get("path", "").strip() and e.get("var_name", "").strip()
+        ]
+        step = FlowStep.objects.create(flow=flow, order=i, saved_request=sr)
+        step.set_extractions(extractions)
+        step.save()
+
+    if not flow.steps.exists():
+        flow.delete()
+        return JsonResponse({"error": "Pick a saved request for at least one step."}, status=400)
 
     return render(request, "partials/flows_list.html", {
         "flows": Flow.objects.filter(owner=request.user).prefetch_related('steps__saved_request')
@@ -663,8 +689,36 @@ def create_flow_api(request):
 
 @login_required
 @require_POST
-def delete_flow_api(request, flow_id):
-    Flow.objects.filter(owner=request.user, id=flow_id).delete()
+def update_flow_api(request, flow_id):
+    """Real edit — replaces a flow's steps wholesale rather than creating a duplicate."""
+    flow = Flow.objects.filter(owner=request.user, id=flow_id).first()
+    if not flow:
+        return JsonResponse({"error": "Not found."}, status=404)
+
+    name = request.POST.get("name", "").strip()
+    if not name:
+        return JsonResponse({"error": "Flow name is required."}, status=400)
+    try:
+        steps_data = json.loads(request.POST.get("steps_json", "[]"))
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "Invalid steps data."}, status=400)
+
+    flow.name = name
+    flow.save()
+    flow.steps.all().delete()
+    for i, s in enumerate(steps_data):
+        sr = SavedRequest.objects.filter(collection__owner=request.user, id=s.get("saved_request_id")).first()
+        if not sr:
+            continue
+        extractions = [
+            {"type": e.get("type", "json"), "path": e.get("path", "").strip(), "var_name": e.get("var_name", "").strip()}
+            for e in s.get("extractions", [])
+            if e.get("path", "").strip() and e.get("var_name", "").strip()
+        ]
+        step = FlowStep.objects.create(flow=flow, order=i, saved_request=sr)
+        step.set_extractions(extractions)
+        step.save()
+
     return render(request, "partials/flows_list.html", {
         "flows": Flow.objects.filter(owner=request.user).prefetch_related('steps__saved_request')
     })
@@ -675,6 +729,7 @@ def flow_detail_api(request, flow_id):
     flow = Flow.objects.filter(owner=request.user, id=flow_id).prefetch_related('steps__saved_request').first()
     if not flow:
         return JsonResponse({"error": "Not found."}, status=404)
+
     return JsonResponse({
         "id": flow.id,
         "name": flow.name,
@@ -684,9 +739,9 @@ def flow_detail_api(request, flow_id):
                 "name": s.saved_request.name,
                 "method": s.saved_request.method,
                 "url": s.saved_request.url,
-                "extract_var_name": s.extract_var_name,
-                "extract_type": s.extract_type,
-                "extract_path": s.extract_path,
+                "collection_id": str(s.saved_request.collection_id),
+                "saved_request_id": str(s.saved_request.id),
+                "extractions": s.get_extractions(),
             }
             for s in flow.steps.order_by('order', 'id')
         ]
@@ -701,8 +756,7 @@ def run_flow_api(request, flow_id):
         return JsonResponse({"error": "Not found."}, status=404)
 
     active_env_id = request.POST.get("active_env_id", "").strip()
-    env = None
-    accumulated = {}
+    env, accumulated = None, {}
     if active_env_id:
         env = Environment.objects.filter(owner=request.user, id=active_env_id).first()
         if env:
@@ -712,74 +766,85 @@ def run_flow_api(request, flow_id):
     for step in flow.steps.order_by('order', 'id'):
         sr = step.saved_request
         url = resolve_env_variables(sr.url, accumulated)
-        headers_list = sr.get_headers()
         headers = {
             resolve_env_variables(h['key'], accumulated): resolve_env_variables(h['val'], accumulated)
-            for h in headers_list if h.get('key')
+            for h in sr.get_headers() if h.get('key')
         }
         body = resolve_env_variables(sr.body, accumulated) if sr.body else sr.body
-
         if body and not any(k.lower() == "content-type" for k in headers):
             headers["Content-Type"] = "application/json"
-
-        auth_data = sr.get_auth_data()
-        headers = apply_auth_headers(headers, sr.auth_type, auth_data)
+        headers = apply_auth_headers(headers, sr.auth_type, sr.get_auth_data())
 
         response_data = execute_relay_request(method=sr.method, url=url, headers=headers, body=body)
+        raw_body = response_data.get("body", "")
 
-        extracted_value = None
-        extracted_error = None
-        if step.extract_var_name:
-            raw_body = response_data.get("body", "")
-            if step.extract_type == "json":
-                try:
-                    parsed = json.loads(raw_body)
-                    extracted_value = extract_json_path(parsed, step.extract_path)
-                except (ValueError, TypeError):
-                    extracted_error = "Response wasn't valid JSON."
-            elif step.extract_type == "html":
-                extracted_value = extract_html_path(raw_body, step.extract_path)
+        extractions = step.get_extractions()
+        parsed_json = None
+        if any(e.get("type") == "json" for e in extractions):
+            try:
+                parsed_json = json.loads(raw_body)
+            except (ValueError, TypeError):
+                parsed_json = None
 
-            if extracted_value is not None:
-                accumulated[step.extract_var_name] = extracted_value
-            elif not extracted_error:
-                extracted_error = f"Could not find '{step.extract_path}' in the response."
+        extracted_values, extracted_errors = {}, []
+        for e in extractions:
+            var_name, path = e.get("var_name", ""), e.get("path", "")
+            if not var_name or not path:
+                continue
+            if e.get("type") == "json":
+                if parsed_json is None:
+                    extracted_errors.append(f"{var_name}: response wasn't valid JSON")
+                    continue
+                value = extract_json_path(parsed_json, path)
+            else:
+                value = extract_html_path(raw_body, path)
 
+            if value is not None:
+                accumulated[var_name] = value
+                extracted_values[var_name] = value
+            else:
+                extracted_errors.append(f"{var_name}: could not find '{path}'")
+
+        status_code = response_data.get("status_code", 0)
         results.append({
             "step_id": step.id,
             "name": sr.name,
             "method": sr.method,
             "url": url,
-            "status_code": response_data.get("status_code", 0),
+            "status_code": status_code,
             "status_category": response_data.get("status_category", "server_error"),
             "elapsed_ms": response_data.get("elapsed_ms", 0),
-            "extract_var_name": step.extract_var_name,
-            "extracted_value": extracted_value,
-            "extracted_error": extracted_error,
+            "extracted_values": extracted_values,
+            "extracted_errors": extracted_errors,
         })
 
         RequestHistory.objects.create(
-            owner=request.user,
-            saved_request=sr,
-            method=sr.method,
-            url=url,
+            owner=request.user, saved_request=sr, method=sr.method, url=url,
             headers_json=json.dumps([{"key": k, "val": v} for k, v in headers.items()]),
-            body=body or "",
-            auth_type=sr.auth_type,
-            auth_data_json=sr.auth_data_json,
-            status_code=response_data.get("status_code", 0),
-            status_category=response_data.get("status_category", "server_error"),
+            body=body or "", auth_type=sr.auth_type, auth_data_json=sr.auth_data_json,
+            status_code=status_code, status_category=response_data.get("status_category", "server_error"),
             elapsed_ms=response_data.get("elapsed_ms", 0),
         )
 
-        if response_data.get("status_code", 0) == 0:
-            break  # connection failure — stop the chain, later steps would fail anyway
+        if status_code == 0:
+            break
 
     if env is not None:
         env.set_vars(accumulated)
         env.save()
 
     return JsonResponse({"results": results, "final_vars": accumulated})
+
+
+@login_required
+@require_POST
+@csrf_exempt
+def delete_flow_api(request, flow_id):
+    Flow.objects.filter(owner=request.user, id=flow_id).delete()
+    return render(request, "partials/flows_list.html", {
+        "flows": Flow.objects.filter(owner=request.user).prefetch_related('steps__saved_request')
+    })
+
 
 
 @login_required
@@ -830,16 +895,97 @@ def run_assertions(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-def evaluate_assertions(assertions, response_data):
-    """Evaluate assertions against response data"""
-    results = []
+def evaluate_assertions(assertions: list, response_data: dict) -> list:
+    """
+    Runs assertion configs against a response_data dict (status_code,
+    elapsed_ms, body, headers) and returns ordered {type, operator, pass,
+    skipped, detail} results.
+    """
+    status_code = response_data.get("status_code", 0)
+    elapsed_ms = response_data.get("elapsed_ms", 0)
+    body = response_data.get("body", "") or ""
+    headers = response_data.get("headers", {}) or {}
 
-    for assertion in assertions:
-        result = evaluate_single_assertion(assertion, response_data)
-        results.append(result)
+    try:
+        parsed_body = json.loads(body)
+    except (ValueError, TypeError):
+        parsed_body = None
+
+    def compare(actual, operator, expected):
+        if operator == "exists":
+            return actual is not None
+        if operator == "not_exists":
+            return actual is None
+        if actual is None:
+            return False
+        if operator == "equals":
+            return str(actual) == str(expected)
+        if operator == "not_equals":
+            return str(actual) != str(expected)
+        if operator == "contains":
+            return str(expected) in str(actual)
+        if operator == "not_contains":
+            return str(expected) not in str(actual)
+        if operator in ("less_than", "greater_than"):
+            try:
+                a, e = float(actual), float(expected)
+            except (TypeError, ValueError):
+                return False
+            return a < e if operator == "less_than" else a > e
+        return False
+
+    results = []
+    for a in assertions:
+        a_type = a.get("type", "status")
+        operator = a.get("operator", "equals")
+        expected = a.get("expected", "")
+        path = a.get("path", "")
+        message = a.get("message") or f"{a_type} {operator} {expected}"
+        skipped, passed, detail = False, False, ""
+
+        if a_type == "status":
+            passed = compare(status_code, operator, expected)
+            detail = f"got {status_code}"
+
+        elif a_type == "response_time":
+            passed = compare(elapsed_ms, operator, expected)
+            detail = f"got {elapsed_ms}ms"
+
+        elif a_type == "header":
+            actual = next((v for k, v in headers.items() if k.lower() == (path or "").lower()), None)
+            passed = compare(actual, operator, expected)
+            detail = f"got {actual!r}"
+
+        elif a_type == "json_path":
+            if parsed_body is None:
+                skipped, detail = True, "response wasn't valid JSON"
+            else:
+                actual = extract_json_path(parsed_body, path)
+                passed = compare(actual, operator, expected)
+                detail = f"got {actual!r}"
+
+        elif a_type == "regex":
+            try:
+                match = re.search(path, body)
+            except re.error:
+                skipped, detail = True, "invalid regex"
+                match = None
+            if not skipped:
+                found = match is not None
+                passed = (not found) if operator == "not_exists" else found
+                detail = "matched" if found else "no match"
+        else:
+            skipped, detail = True, "unknown assertion type"
+
+        results.append({
+            "type": a_type,
+            "operator": operator,
+            "pass": bool(passed) and not skipped,
+            "skipped": skipped,
+            "detail": message if (skipped or not passed) else detail,
+        })
 
     return results
-
 
 def evaluate_single_assertion(assertion, response_data):
     """Evaluate a single assertion"""
@@ -1006,3 +1152,56 @@ def list_environments_api(request):
         ]
     }
     return JsonResponse(data)
+
+@login_required
+@require_POST
+def save_assertions_api(request):
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "Invalid JSON."}, status=400)
+
+    config, _ = AssertionConfig.objects.get_or_create(owner=request.user)
+    config.set_assertions(payload.get("assertions", []))
+    config.save()
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def run_assertions_api(request):
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "Invalid JSON."}, status=400)
+
+    results = evaluate_assertions(payload.get("assertions", []), payload.get("response_data", {}))
+    return JsonResponse({"results": results})
+
+
+@login_required
+@require_POST
+def update_request_api(request):
+    """Update the name of a saved request"""
+    request_id = request.POST.get('request_id', '').strip()
+    name = request.POST.get('name', '').strip()
+
+    if not name:
+        return JsonResponse({"error": "Request name is required."}, status=400)
+
+    saved_request = SavedRequest.objects.filter(collection__owner=request.user, id=request_id).first()
+    if not saved_request:
+        return JsonResponse({"error": "Request not found."}, status=404)
+
+    saved_request.name = name
+    saved_request.save()
+
+    return JsonResponse({"ok": True})
+
+
+@login_required
+def refresh_collections_api(request):
+    """Refresh the collections list partial"""
+    return render(request, "partials/collections_list.html", {
+        "collections": Collection.objects.filter(owner=request.user).prefetch_related('requests', 'environments')
+    })
